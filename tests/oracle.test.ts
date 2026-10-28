@@ -9,7 +9,7 @@ describe('8-ball oracle', () => {
       source: { name: 'Test', mode: 'poll' },
     });
     const o = consult(e.tick(0));
-    expect(o.answer).toBe('CANNOT PREDICT NOW');
+    expect(o.answer).toBe('CANNOT SAY NOW');
     expect(o.odds).toBeNull();
   });
 
@@ -27,7 +27,7 @@ describe('8-ball oracle', () => {
     sim.run(100, (p) => p.noise());
     sim.engine.onPoolState(sim.t, { priceUsd: sim.price, liquidityUsd: 2 * sim.y * 0.5, fdvUsd: null, mcapUsd: null, model: 'CPMM' });
     const o = consult(sim.engine.tick(sim.t));
-    expect(o.answer).toMatch(/LIQUIDITY JUST VANISHED/);
+    expect(o.answer).toBe('LIQUIDITY VANISHED');
     expect(o.tone).toBe('warn');
     expect(o.detail).toMatch(/LP withdrawal/);
   });

@@ -19,19 +19,19 @@ export interface Oracle {
 
 /** Recent alert kinds that take over the ball, newest first wins. */
 const OVERRIDES: Partial<Record<EventKind, { answer: string; tone: OracleTone }>> = {
-  LIQUIDITY_PULLED: { answer: 'VERY DOUBTFUL — LIQUIDITY JUST VANISHED', tone: 'warn' },
-  FLOOR_FORMING: { answer: 'A FLOOR IS FORMING', tone: 'up' },
-  CEILING_FORMING: { answer: 'A CEILING IS FORMING', tone: 'down' },
+  LIQUIDITY_PULLED: { answer: 'LIQUIDITY VANISHED', tone: 'warn' },
+  FLOOR_FORMING: { answer: 'FLOOR FORMING', tone: 'up' },
+  CEILING_FORMING: { answer: 'CEILING FORMING', tone: 'down' },
   BREAKOUT_CONFIRMED: { answer: 'IT WENT', tone: 'up' },
-  FALSE_ALARM: { answer: "DON'T COUNT ON IT — FAKEOUT", tone: 'warn' },
+  FALSE_ALARM: { answer: 'FAKEOUT', tone: 'warn' },
   GRADUATED: { answer: 'IT GRADUATED', tone: 'up' },
-  GRADUATION_LOADING: { answer: 'GRADUATION LOADING…', tone: 'up' },
-  WHALE_BUY: { answer: 'A WHALE APED IN', tone: 'up' },
-  WHALE_SELL: { answer: 'A WHALE DUMPED', tone: 'down' },
-  ONE_WALLET: { answer: 'ONE WALLET, NOT A TREND', tone: 'warn' },
+  GRADUATION_LOADING: { answer: 'ALMOST GRADUATED', tone: 'up' },
+  WHALE_BUY: { answer: 'WHALE APED IN', tone: 'up' },
+  WHALE_SELL: { answer: 'WHALE DUMPED', tone: 'down' },
+  ONE_WALLET: { answer: 'JUST ONE WALLET', tone: 'warn' },
   BUYERS_STACKING: { answer: 'BIDS ARE STACKING', tone: 'up' },
   SELLERS_STACKING: { answer: 'EXITS ARE STACKING', tone: 'down' },
-  IMMINENT: { answer: 'SIGNS POINT TO A MOVE', tone: 'up' },
+  IMMINENT: { answer: 'SIGNS POINT UP', tone: 'up' },
 };
 
 const HOLD_MS = 25_000;
@@ -43,7 +43,7 @@ const HOLD_MS = 25_000;
 export function consult(s: EngineSnapshot): Oracle {
   const odds = oddsLine(s);
   if (!s.valid) {
-    return { key: 'nodata', answer: 'CANNOT PREDICT NOW', tone: 'hazy', detail: `${s.invalidReason ?? 'No data'}. No data, no answer.`, odds: null };
+    return { key: 'nodata', answer: 'CANNOT SAY NOW', tone: 'hazy', detail: `${s.invalidReason ?? 'No data'}. No data, no answer.`, odds: null };
   }
 
   // A fresh alert-level event takes over the ball for a short while.
@@ -51,7 +51,7 @@ export function consult(s: EngineSnapshot): Oracle {
   if (recent) {
     const o = OVERRIDES[recent.kind]!;
     const tone = o.tone === 'up' && recent.direction === 'down' ? 'down' : o.tone;
-    const answer = recent.kind === 'IMMINENT' && recent.direction === 'down' ? 'SIGNS POINT TO A DROP' : recent.kind === 'BREAKOUT_CONFIRMED' && recent.direction === 'down' ? 'IT BROKE DOWN' : o.answer;
+    const answer = recent.kind === 'IMMINENT' && recent.direction === 'down' ? 'SIGNS POINT DOWN' : recent.kind === 'BREAKOUT_CONFIRMED' && recent.direction === 'down' ? 'IT BROKE DOWN' : o.answer;
     return { key: `ev:${recent.id}`, answer, tone, detail: recent.body, odds };
   }
 
@@ -79,23 +79,23 @@ export function consult(s: EngineSnapshot): Oracle {
     case 'BREAKOUT':
       return { key: `st:${st.state}:${st.direction}`, answer: up ? 'IT WENT' : 'IT BROKE DOWN', tone: up ? 'up' : 'down', detail: st.reason, odds };
     case 'IMMINENT':
-      return { key: `st:${st.state}:${st.direction}`, answer: up ? 'SIGNS POINT TO UP' : 'SIGNS POINT TO DOWN', tone: up ? 'up' : 'down', detail: st.reason, odds };
+      return { key: `st:${st.state}:${st.direction}`, answer: up ? 'SIGNS POINT UP' : 'SIGNS POINT DOWN', tone: up ? 'up' : 'down', detail: st.reason, odds };
     case 'COILING':
       return { key: `st:${st.state}:${st.direction}`, answer: 'WICK LOADING…', tone: up ? 'up' : 'down', detail: st.reason, odds };
     case 'WATCHING':
-      return { key: `st:${st.state}:${st.direction}`, answer: up ? 'OUTLOOK: BUYERS LEANING' : 'OUTLOOK: SELLERS LEANING', tone: up ? 'up' : 'down', detail: flowLine, odds };
+      return { key: `st:${st.state}:${st.direction}`, answer: up ? 'OUTLOOK GOOD' : 'OUTLOOK NOT SO GOOD', tone: up ? 'up' : 'down', detail: flowLine, odds };
     case 'FAILED':
       return { key: 'st:FAILED', answer: "DON'T COUNT ON IT", tone: 'warn', detail: st.reason, odds };
     case 'COOLDOWN':
-      return { key: 'st:COOLDOWN', answer: 'CONCENTRATE AND ASK AGAIN', tone: 'hazy', detail: 'The last setup played out. Reading fresh.', odds };
+      return { key: 'st:COOLDOWN', answer: 'ASK AGAIN SOON', tone: 'hazy', detail: 'The last setup played out. Reading fresh.', odds };
   }
 
   // NEUTRAL: describe the lean, if any, without promising anything.
   const top = narrate(s).find((r) => r.concept !== 'data' && r.concept !== 'wick');
-  if (Math.abs(s.score) < 0.12) return { key: 'hazy', answer: 'REPLY HAZY, TRY AGAIN', tone: 'hazy', detail: top?.text ?? flowLine, odds };
+  if (Math.abs(s.score) < 0.12) return { key: 'hazy', answer: 'REPLY HAZY', tone: 'hazy', detail: top?.text ?? flowLine, odds };
   return {
     key: s.score > 0 ? 'lean:up' : 'lean:down',
-    answer: s.score > 0 ? 'BUYERS SLIGHTLY AHEAD' : 'SELLERS SLIGHTLY AHEAD',
+    answer: s.score > 0 ? 'BUYERS NUDGING' : 'SELLERS NUDGING',
     tone: s.score > 0 ? 'up' : 'down',
     detail: flowLine,
     odds,

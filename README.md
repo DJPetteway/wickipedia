@@ -2,18 +2,25 @@
 
 > **Read the chain. See the wick coming.**
 
-Wickipedia is a glassy little market oracle for on-chain tokens. You pick a token and get one big **pressure gauge** (sellers ◀ ▶ buyers) and a **magic 8-ball** under it. The 8-ball answers in real time from live swaps, pool liquidity and bonding curves:
+Wickipedia is a shiny toy with a serious engine inside. Pick a token and you see exactly two things:
+
+1. **A candy gauge.** A glossy jelly bead slides between **SELLERS** and **BUYERS**, with one big word under it (BUYERS / BALANCED / SELLERS).
+2. **A magic 8-ball.** It answers in real time from live swaps, pool liquidity and bonding curves:
 
 ```
-ASK AGAIN LATER              Learning what normal looks like for $WICK — 42/90s.
-OUTLOOK: BUYERS LEANING      5 min: $12.4K in vs $7.1K out from 38 buyers / 19 sellers (≈+6.2% of price).
-A FLOOR IS FORMING           $9.8K of sells hit the pool (2.4σ above normal). On this curve that should have moved price −31% — it moved −4%. Dip buyers absorbed 87%.
-VERY DOUBTFUL — LIQUIDITY JUST VANISHED   Pool liquidity fell $120K → $78K; 35% of that isn't explained by price…
-GRADUATION LOADING… 90%      The bonding curve is 90.4% full — about 8.1 SOL of net buys left before it migrates.
-DON'T COUNT ON IT — FAKEOUT  Price fell back through the trigger within 30s — that was a wick, not a breakout.
+ASK AGAIN LATER · OUTLOOK GOOD · SIGNS POINT UP · WICK LOADING… · IT WENT
+FLOOR FORMING · LIQUIDITY VANISHED · WHALE APED IN · JUST ONE WALLET · FAKEOUT · REPLY HAZY
 ```
 
-The 8-ball never says "it is certain". Every answer restates a measured number, and with no data it answers **CANNOT PREDICT NOW**.
+The 8-ball never says "certain", and with no data it says **CANNOT SAY NOW**. The evidence behind each answer is kept for screen readers and the hover tooltip ("$9.8K of sells hit the pool… should have moved price −31%, it moved −4%…").
+
+A tiny **micro changelog** at the bottom shows what the engine is doing right now, for example:
+- `pulled 300 swaps → 4 new, 296 deduped`
+- `floor scan: $2.1K sells in 120s · 0.6σ — normal selling`
+- `curve reserves read · 57.5% full`
+- `calibration · 41 outcomes counted · 12 in flight`
+
+Every line is a real processing step, not decoration.
 
 ## Where it reads
 
@@ -50,7 +57,7 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-Tap the token pill and choose one of these:
+Tap the token pill at the top and choose one of these:
 - paste a mint / contract / pool address
 - paste a pump.fun, DexScreener or GeckoTerminal link
 - search by name
@@ -75,9 +82,9 @@ PumpPortal (WebSocket)  ──┼─► sources/ ─► engine/poolEngine.ts ─
                           │                └ oracle.ts       8-ball answers
 ```
 
-### The pressure gauge
+### The pressure gauge (what the bead shows)
 
-Score in [−1, 1]. It is a fixed, documented blend; **it is not a probability**:
+The bead position is a score in [−1, 1]. It is a fixed, documented blend; **it is not a probability**:
 
 | Part | Weight | Definition |
 |---|---|---|
@@ -109,7 +116,7 @@ The engine calibrates itself instead of predicting:
 
 1. **Sampling.** Every 15 s it records the score bucket and price, then sets barriers at ±max(0.5%, 1σ·√h) for 5 m, 15 m and 1 h horizons.
 2. **Labelling.** Whichever barrier price touches first is the outcome.
-3. **Reporting.** The 8-ball shows the smoothed frequency for readings like the current one ("▲ 42% · ▼ 21% · n=…"). It only does so once the effective sample size is ≥10. Until then it shows no percentage at all.
+3. **Reporting.** The engine computes the smoothed frequency for readings like the current one, but only once the effective sample size is ≥10. Until then there is no percentage at all. The odds feed the oracle's evidence text, and the agent prints them.
 4. **Storage.** Counts are stored per token in the browser, so the odds start empty and sharpen the longer you run.
 
 ### Data integrity

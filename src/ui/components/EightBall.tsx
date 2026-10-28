@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { Oracle } from '../../engine/oracle';
 
 /**
- * The magic-8-ball window. The answer "floats up" whenever it changes; the
- * evidence line updates in place every tick.
+ * A real-looking magic 8-ball. The answer floats up in the window and the
+ * ball gives a little shake whenever the answer changes. The evidence behind
+ * the answer is kept for screen readers and the hover title, not shown.
  */
 export function EightBall({ oracle }: { oracle: Oracle }) {
   const [shake, setShake] = useState(0);
@@ -16,22 +17,20 @@ export function EightBall({ oracle }: { oracle: Oracle }) {
   }, [oracle.key]);
 
   return (
-    <section className={`eight glass tone-${oracle.tone}`} aria-labelledby="eight-h">
-      <div className="eight-ball" aria-hidden="true">
-        <span>8</span>
-      </div>
-      <div className="eight-body">
-        <h2 id="eight-h" className="sr-only">
-          What the chain says
-        </h2>
-        <div className="eight-window" aria-live="polite" aria-atomic="true">
-          <p key={shake} className="eight-answer">
+    <section className={`ball-wrap tone-${oracle.tone}`} aria-label="Magic 8-ball" title={oracle.detail}>
+      <div className="ball" key={`b${shake}`}>
+        <div className="ball-shine" aria-hidden="true" />
+        <div className="ball-window">
+          <div className="ball-tri" aria-hidden="true" />
+          <p key={shake} className="ball-answer" aria-live="polite" aria-atomic="true">
             {oracle.answer}
           </p>
         </div>
-        <p className="eight-detail">{oracle.detail}</p>
-        {oracle.odds && <p className="eight-odds">{oracle.odds}</p>}
       </div>
+      <p className="sr-only" aria-live="polite">
+        {oracle.detail}
+      </p>
+      <div className="ball-shadow" aria-hidden="true" />
     </section>
   );
 }

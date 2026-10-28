@@ -2,7 +2,7 @@ import { impactOf, quoteReserveFromLiquidity, usdToMoveDown, usdToMoveUp } from 
 import { Calibrator, type HorizonEstimate, type LevelHoldEstimate } from './calibration';
 import { CandleBuilder, type Candle } from './candles';
 import { DEFAULT_CONFIG, ENGINE_VERSION, type EngineConfig } from './config';
-import { copy } from './copy';
+import { copy, fmtPct, fmtUsd, shortAddr } from './copy';
 import { Ring, RollingWindow } from './rolling';
 import { SetupStateMachine, type SetupView, type Transition } from './stateMachine';
 import { clamp, median, std, zScore } from './stats';
@@ -92,9 +92,18 @@ export interface EngineSnapshot {
   floors: { kind: 'floor' | 'ceiling'; level: number; ts: number }[];
   candles: Candle[];
   events: WickEvent[];
+  /** Newest-last micro log of what the engine just did — real processing steps, for the ticker. */
+  activity: ActivityItem[];
+}
+
+export interface ActivityItem {
+  ts: number;
+  text: string;
 }
 
 const MAX_EVENTS = 250;
+/** True once every 5 s (called from the 1 Hz loop). */
+const sec5 = (now: number) => Math.floor(now / 1000) % 5 === 0;
 const IMPACT_STEPS = [0.01, 0.02, 0.05, 0.1, 0.25];
 
 interface FlowItem {
@@ -153,6 +162,10 @@ export class PoolEngine {
 
   private lastSecond = -1;
   private lastPersist = 0;
+  private activity: ActivityItem[] = [];
+  private lastCurveLog = 0;
+  private scanTurn = 0;
+  private floorScan = 'floor scan: waiting for sell flow';
   private cached = {
     score: 0,
     parts: { flowShort: 0, flowLong: 0, wallets: 0, flowVsLiquidity: 0 } as ScoreParts,
@@ -217,6 +230,14 @@ export class PoolEngine {
     this.pool = merged;
     this.health.lastPoolAt = now;
     this.health.lastMessageAt = now;
+    if (state.curve) {
+      if (now - this.lastCurveLog > 10_000) {
+        this.lastCurveLog = now;
+        this.log(now, `curve reserves read · ${(state.curve.progress * 100).toFixed(1)}% full · ${state.curve.solToGraduate.toFixed(1)} SOL to graduate`);
+      }
+    } else if (state.liquidityUsd) {
+      this.log(now, `pool re-read · liquidity ${fmtUsd(state.liquidityUsd)} · LP drift check`);
+    }
     if (state.liquidityUsd !== null && state.liquidityUsd > 0 && state.model !== 'BONDING_CURVE') {
       const price = this.currentPrice() ?? state.priceUsd;
       if (price) this.checkLiquidity(now, state.liquidityUsd, price);
@@ -248,6 +269,11 @@ export class PoolEngine {
       this.checkWhale(now, s);
     }
     if (fresh.length) this.health.lastMessageAt = now;
+    if (swaps.length > 1) this.log(now, `pulled ${swaps.length} swaps → ${fresh.length} new, ${swaps.length - fresh.length} deduped`);
+    else if (fresh.length === 1) {
+      const f = fresh[0];
+      this.log(now, `${f.side} ${fmtUsd(f.usd)}${f.wallet ? ` · ${shortAddr(f.wallet)}` : ''} → flow windows updated`);
+    }
   }
 
   seedCandles(history: Candle[]): void {
@@ -411,8 +437,12 @@ export class PoolEngine {
       this.cached.rangeLow = Math.min(...prior);
     } else this.cached.rangeHigh = this.cached.rangeLow = null;
 
-    if (this.prices.length < c.warmupSec) return;
+    if (this.prices.length < c.warmupSec) {
+      if (sec5(now)) this.log(now, `baselining · ${this.prices.length}/${c.warmupSec}s of 1s price samples`);
+      return;
+    }
 
+    if (sec5(now)) this.logScan(now);
     this.cal.maybeSample(now, price, this.cached.score, this.cached.sigma1s);
     this.detectAbsorption(now, price);
     this.detectStacking(now, price);
@@ -477,22 +507,30 @@ export class PoolEngine {
       const gross = side === 'sell' ? sells : buys;
       const hist = (side === 'sell' ? this.sellAbsHist : this.buyAbsHist).tail(900).slice(0, -W);
       const z = zScore(gross, hist, 60);
-      if (z === null || z < a.minFlowZ || gross / total < a.minAggressorShare || !spread(side)) return null;
+      const note = (why: string) => {
+        if (side === 'sell') this.floorScan = `floor scan: ${fmtUsd(gross)} sells in ${W}s · ${why}`;
+        return null;
+      };
+      if (z === null) return note('baseline still forming');
+      if (z < a.minFlowZ) return note(`${z.toFixed(1)}σ — normal selling`);
+      if (gross / total < a.minAggressorShare) return note(`${((gross / total) * 100).toFixed(0)}% of flow — two-sided`);
+      if (!spread(side)) return note('one burst, not sustained');
       // Normal two-sided churn always "offsets" itself; only unusually heavy one-sided flow counts.
-      if (gross < a.minBaselineMultiple * Math.max(median(hist), 1e-9)) return null;
+      if (gross < a.minBaselineMultiple * Math.max(median(hist), 1e-9)) return note('not heavy vs typical');
       let implied: number | null = null;
       let absorbed: number | null = null;
       if (qr) {
         implied = impactOf(qr, side === 'sell' ? -gross : gross);
-        if (Math.abs(implied) < a.minImpliedMove) return null;
+        if (Math.abs(implied) < a.minImpliedMove) return note(`implies only ${fmtPct(implied)}`);
         const realizedShare = move / implied; // same sign → fraction of the implied move that happened
-        if (realizedShare > a.maxRealizedShare) return null;
+        if (realizedShare > a.maxRealizedShare) return note(`price followed (${fmtPct(move)} of ${fmtPct(implied)}) — not absorbed`);
         absorbed = 1 - Math.max(0, realizedShare);
       } else {
         if (this.cached.sigma1s === null) return null;
         const allowed = Math.max(a.fallbackMaxMoveBps / 1e4, a.sigmaMult * this.cached.sigma1s * Math.sqrt(W));
         if (side === 'sell' ? move < -allowed : move > allowed) return null;
       }
+      if (side === 'sell') this.floorScan = `floor scan: ${fmtUsd(gross)} sells absorbed ${absorbed !== null ? `${(absorbed * 100).toFixed(0)}%` : ''} · confirming`;
       return { gross, implied, absorbed, z };
     };
 
@@ -660,7 +698,29 @@ export class PoolEngine {
     }
   }
 
+  private log(ts: number, text: string): void {
+    this.activity.push({ ts, text });
+    if (this.activity.length > 40) this.activity.shift();
+  }
+
+  /** Rotating summary of what the per-second analytics are checking. */
+  private logScan(now: number): void {
+    const p = this.cached.parts;
+    const est = this.cal.estimates(this.cached.score, this.cached.sigma1s);
+    const n = est.reduce((a, e) => a + e.n, 0);
+    const pending = est.reduce((a, e) => a + e.pending, 0);
+    const lines = [
+      `pressure ${this.cached.score >= 0 ? '+' : ''}${this.cached.score.toFixed(2)} · flow1m ${p.flowShort.toFixed(2)} · flow5m ${p.flowLong.toFixed(2)} · wallets ${p.wallets.toFixed(2)}`,
+      this.floorScan,
+      `volatility ${this.cached.sigma1s !== null ? (this.cached.sigma1s * 1e4).toFixed(1) : '—'}bp/s · compression ${this.cached.compression !== null ? this.cached.compression.toFixed(2) : '—'}`,
+      `calibration · ${n} outcomes counted · ${pending} in flight`,
+      `setup ${this.sm.view().state.toLowerCase()} · range ${this.cached.rangeLow !== null ? 'set' : 'forming'}`,
+    ];
+    this.log(now, lines[this.scanTurn++ % lines.length]);
+  }
+
   private emit(e: WickEvent): void {
+    this.log(e.ts, `⚑ ${e.title.toLowerCase()}`);
     this.events.push(e);
     if (this.events.length > MAX_EVENTS) this.events.shift();
     this.opts.onEvent?.(e);
@@ -754,6 +814,7 @@ export class PoolEngine {
       floors: [...this.floors],
       candles: this.candles.list(),
       events: [...this.events],
+      activity: this.activity.slice(-12),
     };
   }
 }

@@ -6,6 +6,7 @@ import { geckoClient } from '../sources/gecko';
 import { resolveInput, type Candidate } from '../sources/resolve';
 import { EightBall } from './components/EightBall';
 import { Gauge } from './components/Gauge';
+import { Ticker } from './components/Ticker';
 import { TokenSheet } from './components/TokenSheet';
 import { fmtAge, fmtPx } from './format';
 import { useWickipedia } from './useWickipedia';
@@ -89,7 +90,6 @@ export function App() {
 
   const live = !!snap && snap.valid && snap.health.status === 'live';
   const age = snap?.health.lastMessageAt ? snap.now - snap.health.lastMessageAt : null;
-  const dir = snap?.setup.direction;
 
   return (
     <div className={`app ${oracle ? `tone-${oracle.tone}` : ''}`}>
@@ -127,34 +127,29 @@ export function App() {
       <main className="stage">
         {snap && oracle ? (
           <>
-            <Gauge
-              score={snap.score}
-              ready={snap.valid && snap.warmup.ready}
-              parts={snap.scoreParts}
-              warmup={snap.valid && !snap.warmup.ready ? snap.warmup : null}
-            />
+            <Gauge score={snap.score} ready={snap.valid && snap.warmup.ready} />
             <EightBall oracle={oracle} />
-            {dir && snap.setup.state !== 'NEUTRAL' && <span className="sr-only">Setup {snap.setup.state}, direction {dir}</span>}
           </>
         ) : (
           <section className="empty-stage">
             <EightBall
               oracle={{
                 key: 'idle',
-                answer: 'ASK ME ABOUT A TOKEN',
+                answer: 'WHICH TOKEN?',
                 tone: 'hazy',
                 detail: 'Pick a token on Solana (pump.fun, PumpSwap, Raydium, StonkFun), Robinhood Chain or Arbitrum. I read the swaps, not the vibes.',
                 odds: null,
               }}
             />
-            <button type="button" className="candy-btn big" onClick={() => setSheet(true)}>
+            <button type="button" className="candy-btn" onClick={() => setSheet(true)}>
               Pick a token
             </button>
           </section>
         )}
       </main>
 
-      <footer className="fine">Reads on-chain swaps & liquidity. Never certain. Not financial advice.</footer>
+      <footer className="fine">never certain · not financial advice</footer>
+      {snap && <Ticker items={snap.activity} now={snap.now} />}
 
       <TokenSheet
         open={sheet}
