@@ -54,7 +54,7 @@ export function Widget({ s, custom, onExpand }: { s: EngineSnapshot; custom: boo
         <div>
           <span className="muted">{est ? `${fmtHorizon(est.horizonSec)} odds` : 'odds'}</span>
           <strong className={est?.ready ? '' : 'muted'}>
-            {est && est.n > 0 ? `▲${fmtPct(est.up.p)} ▼${fmtPct(est.down.p)}` : 'calibrating'}
+            {est?.ready ? `▲${fmtPct(est.up.p)} ▼${fmtPct(est.down.p)}` : 'calibrating'}
           </strong>
         </div>
       </div>

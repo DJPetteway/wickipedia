@@ -158,7 +158,7 @@ const timer = setInterval(() => {
         score: s.score,
         trigger: s.setup.trigger,
         invalidation: s.setup.invalidation,
-        estimates: s.estimates.map((e) => ({ h: e.horizonSec, up: e.up.p, down: e.down.p, n: e.n, ready: e.ready })),
+        estimates: s.estimates.map((e) => ({ h: e.horizonSec, ready: e.ready, n: e.n, counts: e.counts, ...(e.ready ? { up: e.up.p, down: e.down.p } : {}) })),
       }),
     );
     return;
@@ -168,7 +168,9 @@ const timer = setInterval(() => {
     return;
   }
   const est = s.estimates.find((e) => e.horizonSec === 300);
-  const odds = est && est.n > 0 ? `5m ▲${(est.up.p * 100).toFixed(0)}% ▼${(est.down.p * 100).toFixed(0)}% (n=${est.n}${est.ready ? '' : ', calibrating'})` : '5m odds: calibrating';
+  const odds = est?.ready
+    ? `5m ▲${(est.up.p * 100).toFixed(0)}% ▼${(est.down.p * 100).toFixed(0)}% (n=${est.n})`
+    : `5m odds: calibrating (${est?.counts.up ?? 0}▲/${est?.counts.down ?? 0}▼/${est?.counts.flat ?? 0}· resolved)`;
   console.log(
     dim(
       `${fmtPx(s.mid!)} · ${s.setup.state}${s.setup.direction ? (s.setup.direction === 'up' ? '↑' : '↓') : ''} · pressure ${

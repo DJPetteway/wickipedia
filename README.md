@@ -146,7 +146,7 @@ The engine calibrates itself instead of predicting:
 1. **Sampling.** Every 10 s it records the pressure-score bucket and mid, then sets symmetric barriers at ±max(2 bps, 1σ·√h) for h = 1, 5 and 15 min (triple-barrier labelling).
 2. **Labelling.** Whichever barrier price touches first is the outcome. If neither is touched, the outcome is *no break*.
 3. **Reporting.** The UI shows the Dirichlet(1,1,1)-smoothed frequency of each outcome for the **current** bucket, with an 80% credible range, the raw `n`, and the **effective** `n` (discounted because overlapping horizons are autocorrelated). It also shows the base rate across all buckets for comparison.
-4. **Thresholds.** Below `n_eff = 10` the estimate is labelled *calibrating*. With zero samples, no number is shown.
+4. **Thresholds.** Below `n_eff = 10` no percentage is shown, only the raw outcome counts (e.g. `3 up first · 1 down first · 2 no break`), because a percentage from a handful of samples would mostly reflect the prior. With zero samples, nothing is shown.
 
 Counts are stored per venue and pair (browser `localStorage`, or `.wickipedia/` for the agent), so estimates sharpen the longer you run. Floors and ceilings are tracked the same way: did price stay on the right side of the level over each horizon?
 

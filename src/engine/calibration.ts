@@ -58,6 +58,8 @@ export interface HorizonEstimate {
   baseUp: number;
   baseDown: number;
   n: number;
+  /** Raw resolved outcomes for this bucket. */
+  counts: { up: number; down: number; flat: number };
   /** n discounted for overlapping horizons (samples are autocorrelated). */
   nEff: number;
   ready: boolean;
@@ -204,6 +206,7 @@ export class Calibrator {
         baseUp: (all[0] + 1) / (allN + 3),
         baseDown: (all[1] + 1) / (allN + 3),
         n,
+        counts: { up: c[0], down: c[1], flat: c[2] },
         nEff,
         ready: nEff >= this.cfg.minEffectiveN,
         pending: this.pending.filter((p) => p.horizonSec === h).length,

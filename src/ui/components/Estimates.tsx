@@ -25,6 +25,12 @@ export function EstimatesPanel({ s, onReset }: { s: EngineSnapshot; onReset: () 
               </div>
               {e.n === 0 ? (
                 <p className="est-none">No resolved samples in this bucket yet — no number to show. {e.pending > 0 ? `${e.pending} in flight.` : ''}</p>
+              ) : lowConf ? (
+                // Too few independent samples: a percentage would mostly be the prior talking. Show raw counts instead.
+                <p className="est-none">
+                  Resolved so far: <span className="bid-t">▲ {e.counts.up} up first</span> · <span className="ask-t">▼ {e.counts.down} down first</span> ·{' '}
+                  {e.counts.flat} no break. Percentages unlock at n_eff 10.{e.pending ? ` ${e.pending} in flight.` : ''}
+                </p>
               ) : (
                 <>
                   <div
