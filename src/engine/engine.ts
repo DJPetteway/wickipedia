@@ -205,7 +205,7 @@ export class WickEngine {
         this.health.resyncs++;
         if (detail?.includes('gap')) this.health.gaps++;
       }
-      if (wasSynced) {
+      if (wasSynced && status !== 'closed') {
         this.invalidate(now, status === 'resyncing' ? `Book resync: ${detail ?? 'unknown reason'}` : `Feed ${status}${detail ? `: ${detail}` : ''}`);
       }
     }

@@ -116,3 +116,19 @@ describe('WickEngine — microstructure signals', () => {
     expect(total(again)).toBeGreaterThan(0);
   });
 });
+
+describe('WickEngine — ceilings (mirror of floors)', () => {
+  it('detects a ceiling when heavy market buying is absorbed by refilled asks', () => {
+    const sim = new SimMarket();
+    sim.snapshot();
+    sim.run(240, (m) => m.noise());
+    const before = sim.engine.tick(sim.t).events.length;
+    const snap = sim.run(35, (m) => {
+      m.trade('buy', 1.5);
+      if (m.random() < 0.2) m.trade('sell', 0.05);
+    });
+    const ceiling = snap.events.slice(before).find((e) => e.kind === 'CEILING_FORMING');
+    expect(ceiling).toBeDefined();
+    expect(ceiling!.direction).toBe('down');
+  });
+});
