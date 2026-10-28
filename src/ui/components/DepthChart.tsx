@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { DepthPoint, EngineSnapshot } from '../../engine/engine';
 import { fmtPx, fmtQty, fmtUsd } from '../format';
-import { Panel } from './common';
+import { Panel, useWidth } from './common';
 
 const RANGES = [10, 25, 50, 100, 200];
 
@@ -9,7 +9,7 @@ export function DepthChart({ s }: { s: EngineSnapshot }) {
   const [rangeBps, setRange] = useState(50);
   const [hover, setHover] = useState<{ x: number; price: number } | null>(null);
   const ref = useRef<SVGSVGElement>(null);
-  const W = 640;
+  const [wrapRef, W] = useWidth<HTMLDivElement>();
   const H = 220;
   const padB = 22;
   const mid = s.mid;
@@ -36,7 +36,7 @@ export function DepthChart({ s }: { s: EngineSnapshot }) {
       return { line: d, area: `${d}L${edge},${y(0)}Z` };
     };
     return { lo, hi, x, y, maxY, bids, asks, b: step(bids, 'bid'), a: step(asks, 'ask') };
-  }, [s.depth, mid, rangeBps]);
+  }, [s.depth, mid, rangeBps, W]);
 
   const tip = useMemo(() => {
     if (!hover || !view || mid === null) return null;
@@ -82,11 +82,12 @@ export function DepthChart({ s }: { s: EngineSnapshot }) {
             <span className="lg bid">▲ Bids {fmtQty(bidTotal)}</span>
             <span className="lg ask">Asks {fmtQty(askTotal)} ▼</span>
           </div>
-          <div className="chart-wrap">
+          <div className="chart-wrap" ref={wrapRef}>
             <svg
               ref={ref}
               viewBox={`0 0 ${W} ${H}`}
-              preserveAspectRatio="none"
+              width={W}
+              height={H}
               className="depth"
               role="img"
               aria-label={`Cumulative depth within ±${rangeBps / 100}% of mid: ${fmtQty(bidTotal)} bid vs ${fmtQty(askTotal)} ask`}
@@ -104,7 +105,9 @@ export function DepthChart({ s }: { s: EngineSnapshot }) {
               {(() => {
                 // Draw every wall line, but only label walls that won't collide with a neighbour.
                 let lastLabelX = -Infinity;
-                return s.walls
+                const biggest = (side: 'bid' | 'ask') =>
+                  s.walls.filter((w) => w.side === side).sort((a, b) => b.notional - a.notional).slice(0, 3);
+                return [...biggest('bid'), ...biggest('ask')]
                   .filter((w) => w.price >= view.lo && w.price <= view.hi)
                   .sort((a, b) => a.price - b.price)
                   .map((w) => {

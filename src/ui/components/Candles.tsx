@@ -4,7 +4,7 @@ import type { EngineSnapshot } from '../../engine/engine';
 import { explainCandle } from '../../engine/narrative';
 import type { EventKind } from '../../engine/types';
 import { fmtPct, fmtPx, fmtQty, fmtTime } from '../format';
-import { Panel } from './common';
+import { Panel, useWidth } from './common';
 
 const MARKS: Partial<Record<EventKind, { glyph: string; cls: string; label: string }>> = {
   FLOOR_FORMING: { glyph: '▲', cls: 'bid-t', label: 'floor' },
@@ -17,7 +17,7 @@ const MARKS: Partial<Record<EventKind, { glyph: string; cls: string; label: stri
 /** Static anatomy diagram — the "how to read a wick" cheat sheet. */
 export function WickDiagram() {
   return (
-    <svg viewBox="0 0 240 150" className="wick-diagram" role="img" aria-label="Candle anatomy: upper wick above the body, lower wick below">
+    <svg viewBox="0 0 300 150" className="wick-diagram" role="img" aria-label="Candle anatomy: upper wick above the body, lower wick below">
       <line x1="60" y1="12" x2="60" y2="138" className="wd-wick" />
       <rect x="44" y="48" width="32" height="40" rx="3" className="wd-body" />
       <line x1="84" y1="12" x2="120" y2="12" className="wd-guide" />
@@ -40,7 +40,7 @@ export function CandlesPanel({ s }: { s: EngineSnapshot }) {
   const idx = sel !== null && sel < candles.length ? sel : Math.max(0, candles.length - 2);
   const c: Candle | undefined = candles[idx];
 
-  const W = 640;
+  const [wrapRef, W] = useWidth<HTMLDivElement>();
   const H = 200;
   const pad = 16;
   const lo = Math.min(...candles.map((k) => k.l));
@@ -68,9 +68,11 @@ export function CandlesPanel({ s }: { s: EngineSnapshot }) {
         <div className="empty">Candles build from live trades (and venue history when available).</div>
       ) : (
         <div className="candles-wrap">
+          <div ref={wrapRef} className="chart-wrap">
           <svg
             viewBox={`0 0 ${W} ${H}`}
-            preserveAspectRatio="none"
+            width={W}
+            height={H}
             className="candles"
             role="img"
             tabIndex={0}
@@ -95,6 +97,7 @@ export function CandlesPanel({ s }: { s: EngineSnapshot }) {
               );
             })}
           </svg>
+          </div>
           {c && a && (
             <div className="anatomy" aria-live="polite">
               <div className="an-h">

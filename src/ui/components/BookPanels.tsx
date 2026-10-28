@@ -92,6 +92,7 @@ export function WallsPanel({ s }: { s: EngineSnapshot }) {
       {s.walls.length === 0 ? (
         <div className="empty">No walls within ±1.5% right now. A smooth book.</div>
       ) : (
+        <div className="tbl-wrap">
         <table className="tbl">
           <caption className="sr-only">Detected liquidity walls</caption>
           <thead>
@@ -100,7 +101,7 @@ export function WallsPanel({ s }: { s: EngineSnapshot }) {
               <th scope="col">Price</th>
               <th scope="col">Size</th>
               <th scope="col">Dist</th>
-              <th scope="col">Status</th>
+              <th scope="col">Status / age</th>
             </tr>
           </thead>
           <tbody>
@@ -118,13 +119,14 @@ export function WallsPanel({ s }: { s: EngineSnapshot }) {
                   ) : w.eatenFrac > 0.1 ? (
                     <span className="chip warm">nibbled {(w.eatenFrac * 100).toFixed(0)}%</span>
                   ) : (
-                    <span className="chip">holding {fmtAge(w.ageSec * 1000)}</span>
+                    <span className="chip" title="Time the wall has been resting">{fmtAge(w.ageSec * 1000)}</span>
                   )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       )}
       <h3 className="sub">Floors & ceilings <span className="muted">(last 15 min)</span></h3>
       {recent.length === 0 ? (

@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LessonId } from '../content';
 
 export const LessonContext = createContext<(id: LessonId) => void>(() => undefined);
@@ -95,4 +95,23 @@ export function DivergingBar({ value, label, detail }: { value: number; label: s
       {detail && <span className="dbar-detail">{detail}</span>}
     </div>
   );
+}
+
+/**
+ * Measures an element's width so SVG charts can draw at true pixel size (no
+ * stretched text). Returns a callback ref, so it also works for containers
+ * that only mount once data arrives.
+ */
+export function useWidth<T extends HTMLElement>(fallback = 640) {
+  const [w, setW] = useState(fallback);
+  const ro = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: T | null) => {
+    ro.current?.disconnect();
+    ro.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    ro.current = new ResizeObserver(([e]) => setW(Math.max(200, Math.round(e.contentRect.width))));
+    ro.current.observe(el);
+  }, []);
+  useEffect(() => () => ro.current?.disconnect(), []);
+  return [ref, w] as const;
 }

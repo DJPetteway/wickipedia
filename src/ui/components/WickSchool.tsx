@@ -18,7 +18,11 @@ export function WickSchool({ open, focus, onClose, onPick }: { open: boolean; fo
   }, [open]);
 
   useEffect(() => {
-    if (open && focus) document.getElementById(`lesson-${focus}`)?.scrollIntoView({ block: 'start' });
+    if (!open || !focus) return;
+    // Scroll only the lesson pane — scrollIntoView would also scroll the dialog and hide its header.
+    const el = document.getElementById(`lesson-${focus}`);
+    const pane = el?.parentElement;
+    if (el && pane) pane.scrollTop = el.offsetTop; // pane is position:relative, so offsetTop is pane-relative
   }, [open, focus]);
 
   return (

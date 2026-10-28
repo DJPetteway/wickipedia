@@ -800,13 +800,9 @@ time,
 }
 .depth,
 .candles {
-  width: 100%;
-  height: 220px;
+  max-width: 100%;
   display: block;
   touch-action: none;
-}
-.candles {
-  height: 200px;
 }
 .depth .gridline {
   stroke: #262a36;
@@ -1037,6 +1033,10 @@ time,
 }
 
 /* tables */
+.tbl-wrap {
+  overflow-x: auto;
+  margin: 0 -4px;
+}
 .tbl {
   width: 100%;
   border-collapse: collapse;
@@ -1451,8 +1451,13 @@ time,
 /* wick school */
 .school {
   width: min(980px, calc(100vw - 24px));
-  max-height: calc(100vh - 40px);
+  height: min(860px, calc(100vh - 40px));
   padding: 0;
+  overflow: hidden;
+}
+.school[open] {
+  display: flex;
+  flex-direction: column;
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--line-2);
@@ -1480,7 +1485,8 @@ time,
 .school-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  max-height: calc(100vh - 140px);
+  flex: 1;
+  min-height: 0;
 }
 @media (min-width: 760px) {
   .school-body {
@@ -1517,6 +1523,7 @@ time,
   color: var(--accent);
 }
 .school-lessons {
+  position: relative;
   overflow-y: auto;
   padding: 10px 20px 20px;
 }

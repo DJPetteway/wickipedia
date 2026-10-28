@@ -533,7 +533,8 @@ export class WickEngine {
   private onWallChange(now: number, ch: ReturnType<WallTracker['update']>[number]): void {
     const w = ch.wall;
     if (ch.kind === 'spotted') {
-      this.emit(copy.wallSpotted(now, w.side, w.price, w.notional, w.multiple, w.distanceBps));
+      // Walls stay visible in the snapshot; the feed only gets one "spotted" line per side per 30 s.
+      if (this.cooled(`spot-${w.side}`, now, 30)) this.emit(copy.wallSpotted(now, w.side, w.price, w.notional, w.multiple, w.distanceBps));
     } else if (ch.kind === 'eaten') {
       this.emit(copy.wallEaten(now, w.side, w.price, ch.traded * w.price, (Math.min(ch.traded, ch.drop) / w.peakSize) * 100));
       // An eaten ask wall supports an up move; an eaten bid wall supports a down move.
