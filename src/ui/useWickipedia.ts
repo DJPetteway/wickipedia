@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { WickEngine, type EngineSnapshot, type KVStore } from '../engine/engine';
+import { PoolEngine, type EngineSnapshot, type KVStore } from '../engine/poolEngine';
 import type { WickEvent } from '../engine/types';
-import { createFeed, findVenue } from '../feeds';
+import { sourceInfo, startMarket, type SourceOptions } from '../sources/market';
+import { toMarketRef, type Candidate } from '../sources/resolve';
 
 /** localStorage, wrapped so private mode / blocked storage never breaks the app. */
 export const browserStore: KVStore = {
@@ -21,31 +22,25 @@ export const browserStore: KVStore = {
   },
 };
 
-export interface Endpoints {
-  ws?: string;
-  rest?: string;
-}
-
-export function useWickipedia(venueId: string, symbol: string, endpoints: Endpoints, onEvent: (e: WickEvent) => void) {
+export function useWickipedia(candidate: Candidate | null, sources: SourceOptions, onEvent: (e: WickEvent) => void) {
   const [snap, setSnap] = useState<EngineSnapshot | null>(null);
-  const engineRef = useRef<WickEngine | null>(null);
+  const engineRef = useRef<PoolEngine | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const key = candidate ? `${candidate.chain}:${candidate.token}:${candidate.pool ?? ''}:${candidate.pumpCurve}` : '';
 
   useEffect(() => {
-    const venue = findVenue(venueId);
-    if (!venue) return;
-    const engine = new WickEngine({
-      venueId: venue.id,
-      venueName: venue.name,
-      venueKind: venue.kind,
-      symbol,
+    setSnap(null);
+    if (!candidate) return;
+    const plan = { pumpCurve: candidate.pumpCurve };
+    const engine = new PoolEngine({
+      market: toMarketRef(candidate),
+      source: sourceInfo(plan, !!candidate.pool),
       store: browserStore,
       onEvent: (e) => onEventRef.current(e),
     });
     engineRef.current = engine;
-    const feed = createFeed(venue, symbol, engine, { wsBase: endpoints.ws, restBase: endpoints.rest });
-    feed.start();
+    const stop = startMarket(engine, plan, sources);
     setSnap(engine.tick(Date.now()));
     const iv = setInterval(() => setSnap(engine.tick(Date.now())), 250);
     const persist = () => engine.persistCalibration();
@@ -53,11 +48,12 @@ export function useWickipedia(venueId: string, symbol: string, endpoints: Endpoi
     return () => {
       clearInterval(iv);
       window.removeEventListener('pagehide', persist);
-      feed.stop();
+      stop();
       engine.persistCalibration();
       engineRef.current = null;
     };
-  }, [venueId, symbol, endpoints.ws, endpoints.rest]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, sources.geckoBase, sources.pumpWs]);
 
   return { snap, engine: engineRef };
 }

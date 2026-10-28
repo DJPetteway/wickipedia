@@ -1,4 +1,10 @@
-import type { Trade } from './types';
+/** Minimal trade shape candles need. */
+export interface CandleTrade {
+  ts: number;
+  price: number;
+  size: number;
+  aggressor: 'buy' | 'sell';
+}
 
 export interface Candle {
   /** Bucket open time (ms). */
@@ -62,7 +68,7 @@ export class CandleBuilder {
     this.candles = [...older, ...this.candles].slice(-this.keep);
   }
 
-  onTrade(t: Trade): void {
+  onTrade(t: CandleTrade): void {
     const bucket = Math.floor(t.ts / this.intervalMs) * this.intervalMs;
     let last = this.candles[this.candles.length - 1];
     if (last && bucket < last.t) return; // late trade from an older bucket; ignore

@@ -2,7 +2,7 @@ import { Calibrator } from '../src/engine/calibration';
 import { DEFAULT_CONFIG } from '../src/engine/config';
 import { betaCdf, betaQuantile } from '../src/engine/stats';
 
-const cfg = { ...DEFAULT_CONFIG.calibration, horizonsSec: [60], sampleEverySec: 10 };
+const cfg = { ...DEFAULT_CONFIG.calibration, horizonsSec: [60], sampleEverySec: 10, minBarrierBps: 2 };
 
 describe('beta helpers', () => {
   it('matches known values', () => {

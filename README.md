@@ -1,186 +1,147 @@
-# Wickipedia — The Order Book Knows
+# Wickipedia — the chain knows
 
-> **Read the book. See the wick coming.**
+> **Read the chain. See the wick coming.**
 
-Wickipedia is a real-time order-book intelligence agent for crypto. It reads live L2 order books and the aggressive trade tape from centralized exchanges, measures liquidity and flow, and tells you, in plain trader language, when the book is setting up for a move. It also flags when a setup falls apart.
-
-It works as a **dashboard**, a **pop-out widget**, a **desktop alert tool** and a **headless agent** that can post to Discord or Slack. It doubles as a **wick explainer**: every reading comes with a short lesson on what it means and what it tends to look like on a candle.
+Wickipedia is a glassy little market oracle for on-chain tokens. You pick a token and get one big **pressure gauge** (sellers ◀ ▶ buyers) and a **magic 8-ball** under it. The 8-ball answers in real time from live swaps, pool liquidity and bonding curves:
 
 ```
-WICKIPEDIA IS COOKING      Buy-side pressure is building near resistance.
-THE WALL IS GETTING EATEN  Aggressive buyers consumed 62% of the ask wall at 67,012.50 ($410K traded into it).
-FLOOR FORMING              $1.2M of market sells hit the bid (2.3σ above normal) and price moved only −0.8 bps.
-LIQUIDITY JUST VANISHED    An ask wall of $380K was pulled with only 4% of it trading. This may be a liquidity withdrawal, not proof of a breakout.
-WICK LOADING… ↑            Compression and directional order flow suggest an emerging setup.
-BREAKOUT CONFIRMED ↑       Price crossed the configured trigger level with supporting confirmation.
-FALSE ALARM                Price fell back through 67,020.00 within 15s — that was a wick, not a breakout.
+ASK AGAIN LATER              Learning what normal looks like for $WICK — 42/90s.
+OUTLOOK: BUYERS LEANING      5 min: $12.4K in vs $7.1K out from 38 buyers / 19 sellers (≈+6.2% of price).
+A FLOOR IS FORMING           $9.8K of sells hit the pool (2.4σ above normal). On this curve that should have moved price −31% — it moved −4%. Dip buyers absorbed 87%.
+VERY DOUBTFUL — LIQUIDITY JUST VANISHED   Pool liquidity fell $120K → $78K; 35% of that isn't explained by price…
+GRADUATION LOADING… 90%      The bonding curve is 90.4% full — about 8.1 SOL of net buys left before it migrates.
+DON'T COUNT ON IT — FAKEOUT  Price fell back through the trigger within 30s — that was a wick, not a breakout.
 ```
 
-Wickipedia only emits an alert when the engine has measured the condition. The numbers in each alert are the measurements that triggered it.
+The 8-ball never says "it is certain". Every answer restates a measured number, and with no data it answers **CANNOT PREDICT NOW**.
 
----
+## Where it reads
 
-## Quick start
+| Chain | Venues | Data |
+|---|---|---|
+| **Solana** | pump.fun bonding curves, PumpSwap, Raydium (AMM / CLMM / LaunchLab, which is what **StonkFun** launches on), Meteora, Orca | GeckoTerminal (pools, swaps, liquidity) + PumpPortal (real-time pump.fun curve trades) |
+| **Robinhood Chain** (Arbitrum Orbit L2) | DEX pools indexed by GeckoTerminal | GeckoTerminal, with the network id found automatically |
+| **Arbitrum One** | Uniswap, Camelot, … | GeckoTerminal |
 
-Requires **Node ≥ 22** (for the built-in `WebSocket` used by the headless agent).
+Both data sources are free and need no API keys. The data layer is pluggable (`src/sources/market.ts`), so a paid real-time provider can be added later without touching the engine.
+
+These are **DEX pools and bonding curves, not order books**. There are no bids or asks to read. Wickipedia measures what actually moves price on-chain: swaps (side, size, wallet), liquidity, and curve reserves.
+
+## Use it
+
+### On your phone / public site (GitHub Pages)
+
+The repo ships a Pages workflow (`.github/workflows/pages.yml`). It builds, tests and deploys `main`. One-time setup:
+
+1. On GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. Merge this branch into `main` (or run the "deploy to GitHub Pages" workflow by hand).
+3. Open **https://djpetteway.github.io/wickipedia/** on your phone. To add it to your home screen:
+   - **iPhone:** Share → *Add to Home Screen*
+   - **Android:** ⋮ → *Install app*
+
+   It then opens full-screen like an app.
+
+Links are shareable. The URL carries the token, e.g. `…/wickipedia/?chain=solana&token=<mint>`.
+
+### Locally
 
 ```bash
 npm install
-npm run dev          # dashboard at http://localhost:5173
+npm run dev          # http://localhost:5173
 ```
 
-Pick a venue and pair in the header. Wickipedia connects straight from your browser to the exchange's public market-data endpoints. No API keys, no backend.
-
-| Venue | Pairs (type any listed pair) | Notes |
-|---|---|---|
-| Binance | `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `DOGEUSDT`, `XRPUSDT`, `PEPEUSDT`, … | Not reachable from some regions (incl. the US). |
-| Binance.US | `BTCUSDT`, `ETHUSDT`, … | Same protocol, thinner books. |
-| Coinbase | `BTC-USD`, `ETH-USD`, `SOL-USD`, … | Advanced Trade public WebSocket. |
-
-URL parameters make any view shareable: `?venue=coinbase&symbol=ETH-USD&view=widget`.
-
-### Widget & alerts
-
-- **Pop-out widget**: a compact window with the state, price, pressure, odds and latest alerts. You can also open `?view=widget` directly, e.g. on a second monitor or as a stream overlay (OBS browser source).
-- **Enable alerts**: opt-in desktop notifications for high-severity events (rate-limited per alert type). The browser tab title also shows the live state (`IMMINENT↑ · 67,012.50 BTCUSDT`).
+Tap the token pill and choose one of these:
+- paste a mint / contract / pool address
+- paste a pump.fun, DexScreener or GeckoTerminal link
+- search by name
+- tap something from *trending*, *new pools* or *live pump.fun launches*
 
 ### Headless agent (terminal / Discord / Slack)
 
 ```bash
-npm run agent -- --venue coinbase --symbol BTC-USD
-npm run agent -- --venue binance --symbol SOLUSDT --webhook https://discord.com/api/webhooks/…
-npm run agent -- --venue binance --symbol BTCUSDT --json > events.ndjson
+npm run agent -- --chain solana --token <mint-or-link>
+npm run agent -- --chain solana --token <mint> --webhook https://discord.com/api/webhooks/…
 npm run agent -- --help
 ```
-
-The agent runs the same engine with no browser. Calibration counts persist in `./.wickipedia/` between runs, and `--record file.ndjson` captures raw venue messages for later analysis.
-
-### Production build
-
-```bash
-npm run build        # static site in dist/ — host anywhere (GitHub Pages, Netlify, S3…)
-npm run preview
-```
-
----
-
-## What's on screen
-
-| # | Panel | What it shows |
-|---|---|---|
-| 1 | **Header** | Brand, venue/pair, market-data health pill. The pill shows LIVE / SYNCING / RESYNCING / STALE, latency, messages per second, time since the last message and resync count. |
-| 2 | **Hero** | Live price, 1-min change, spread and book age; the setup state and why it changed; trigger, invalidation and 2-min range; the pressure gauge and its four components. |
-| 3 | **Depth** | Cumulative bid/ask depth at ±0.1% to ±2%. Detected walls and the active trigger are drawn on it. Hover for size to any price. |
-| 4 | **What the book is saying** | Plain-English reads generated from the current numbers. Each one links to its lesson. |
-| 5 | **Book imbalance** | Imbalance at ±0.10%, ±0.25% and ±0.50% bands, plus microprice. |
-| 6 | **Aggressive flow** | Taker buy vs sell notional over 10 s and 60 s, CVD, and OFI z-score with sparklines. |
-| 7 | **Walls & absorption** | Detected walls with their status (holding / nibbled / eaten), recent floors and ceilings, and whether each is still holding. |
-| 8 | **Breakout odds (calibrated)** | Up-first / down-first / no-break frequencies for 1 m, 5 m and 15 m, each with a credible range, sample size and base rate. Also floor and ceiling hold rates. |
-| 9 | **Wick explainer** | 1-min candles with event markers. Hover or arrow-key through them to see each candle's anatomy (wick/body split, taker buy vs sell volume) and what it means. |
-| 10 | **The feed** | Chronological log of every state transition and alert, with timestamps, the evidence behind it and a "why it matters" lesson. |
-| — | **Wick School** | 13 short lessons: order books, imbalance, OFI, walls, absorption, coiling, reading wicks, how the odds are computed, and CEX vs DEX. |
-
-The layout is dark and dense, and works from phone width up to ultrawide. Accessibility features:
-
-- **Colorblind-safe color mode.** The default teal/rose is checked for adequate color-vision-deficiency separation, and a blue/orange mode is one click away.
-- **Never color alone.** Every bid/ask reading also carries ▲/▼ arrows and text labels.
-- **Keyboard support.** Charts and candles can be operated by keyboard, with visible focus rings.
-- **Screen readers.** State changes are announced through `aria-live`, and meters and charts have text alternatives.
-- **Motion and contrast settings.** `prefers-reduced-motion` and `forced-colors` are respected.
-
----
 
 ## How it works
 
 ```
- exchange WS + REST ──► feeds/  (protocol + sequencing)  ──►  engine/  (pure, deterministic)  ──►  UI / agent
-                         ├ binance.ts  diff-depth + snapshot   ├ orderbook.ts   sorted L2 book
-                         └ coinbase.ts level2 + market_trades  ├ sync.ts        sequencing rules
-                                                               ├ engine.ts      features, score, detectors
-                                                               ├ walls.ts       wall tracking
-                                                               ├ stateMachine.ts setup states
-                                                               ├ calibration.ts empirical odds
-                                                               ├ copy.ts        alert wording
-                                                               └ narrative.ts   plain-English reads
+GeckoTerminal (poll ~6s) ─┐
+PumpPortal (WebSocket)  ──┼─► sources/ ─► engine/poolEngine.ts ─► gauge + 8-ball (UI)  /  agent
+                          │                ├ amm.ts          exact x·y=k + pump.fun curve math
+                          │                ├ stateMachine.ts setup states
+                          │                ├ calibration.ts  empirical odds
+                          │                └ oracle.ts       8-ball answers
 ```
 
-The **engine is the source of truth**. It is pure TypeScript with no I/O, and every timestamp is passed in, so it behaves identically in the browser, in the Node agent and in tests. The UI only renders what the engine measured.
+### The pressure gauge
 
-### Data integrity
+Score in [−1, 1]. It is a fixed, documented blend; **it is not a probability**:
 
-- **Binance:** a diff-depth stream is synced to a REST snapshot following the documented update-id rules. Buffered events are bridged into the snapshot, and any `U ≠ prev u + 1` gap triggers a rebuild.
-- **Coinbase:** a full-book WebSocket snapshot is followed by absolute updates. `sequence_num` is checked on every message, and a gap triggers a reconnect.
-- **Signals pause whenever the book can't be trusted:** not yet synced, crossed, resyncing, or silent for 10 s. The UI and agent say why, and the setup state resets. In-flight calibration samples that span a data hole are discarded rather than guessed.
-- **Aggressor side comes from the venue:** Binance `m` (buyer is maker → taker sold); Coinbase `side`, which is documented as the maker side.
-- **Latency is approximate.** It is shown as local receive time minus exchange event time, so it includes your clock offset.
+| Part | Weight | Definition |
+|---|---|---|
+| Flow 1m | 30% | (buy $ − sell $) / total over the last minute |
+| Flow 5m | 25% | the same over 5 minutes |
+| Wallets | 20% | (distinct buyers − sellers) / total over 5 minutes |
+| vs Liq | 25% | tanh(net 5-min $ ÷ $ needed to move price 2% on this pool) |
 
-### Signals
+The weights are renormalised when a source doesn't report wallets or liquidity.
 
-| Signal | Definition |
-|---|---|
-| Imbalance | `(bidQty − askQty)/(bidQty + askQty)` within N bps of mid |
-| Microprice | `(ask·bidSize + bid·askSize)/(bidSize + askSize)` |
-| OFI | Cont–Kukanov–Stoikov best-quote order-flow imbalance, 10 s sum ÷ mean L1 depth, z-scored against the pair's own last 5 min |
-| Flow delta | `(takerBuy − takerSell)/(takerBuy + takerSell)` notional, 10 s and 60 s; CVD in base units |
-| Volatility | Std of 1 s log returns. **Compression** = 1-min σ ÷ 10-min σ |
-| Walls | Level ≥ 6× the median level size within ±1.5%, alive ≥ 3 s. **Eaten** = ≥ 50% gone and ≥ 50% of the drop explained by taker trades at the level. **Vanished** = ≥ 70% gone and ≤ 20% of it traded |
-| Floor (ceiling) | Over 30 s: taker sell (buy) notional ≥ 1.5σ above its own baseline, ≥ 60% of volume, sustained in ≥ half the seconds. Price moves less than max(3 bps, 0.5σ√30 s), and near-touch bid (ask) depth stays ≥ 80% |
-| Stacking | Near-touch depth +30% in 30 s, imbalance ≥ 25% on that side, and the opposing aggression fails to move price |
+### Detectors (all thresholds in `src/engine/config.ts`)
 
-The **pressure score** in [−1, 1] is a fixed, documented blend: 30% imbalance, 25% OFI, 30% flow, 15% microprice. It drives the state machine. **It is not a probability.** All thresholds live in [`src/engine/config.ts`](src/engine/config.ts).
+- **Floors under sell pressure.** On a pool we can compute exactly how far gross selling *should* have moved price. A floor is called when all of these hold for at least 10 seconds:
+  - sells are ≥1.5σ above normal and ≥2.5× typical volume;
+  - sells are ≥55% of flow, spread across the 2-minute window;
+  - price moved less than 35% of the implied move.
 
-### Setup state machine
+  Ceilings are the mirror image. Each floor and ceiling is tracked afterwards to see whether it held.
+- **Liquidity pulls (rug radar).** In a constant-product pool, USD liquidity naturally scales with √price, and that effect is removed first. Then ≥20% of liquidity vanishing within 3 minutes means LP was pulled.
+- **Whale prints:** single swaps ≥ max($2K, 1% of liquidity), with the price impact they imply.
+- **One-wallet markets:** one wallet is ≥50% of one side's 5-minute volume.
+- **Bids / exits stacking:** ≥8 distinct wallets on one side and ≥2× the other side, while price holds.
+- **Graduation.** pump.fun curve progress and SOL-to-graduate come from pump.fun's published curve constants. They are labelled as estimates, because launchpads change parameters.
+- **Setup state machine:** `NEUTRAL → WATCHING → COILING → IMMINENT → BREAKOUT / FAILED → COOLDOWN`. The trigger and invalidation levels come from the prior 5-minute range. A breakout needs price through the trigger *and* 1-minute flow agreeing.
 
-`NEUTRAL → WATCHING → COILING → IMMINENT → BREAKOUT → COOLDOWN`, with `FAILED` as the exit when a setup breaks its invalidation level or a breakout snaps back inside the range (a fakeout wick).
-
-- **Trigger and invalidation** are the edges of the prior 2-minute range. They freeze once the setup coils.
-- **IMMINENT requires** compression, aligned pressure ≥ 0.45, price near the trigger, and a supporting book event in the last 30 s (wall eaten, floor or ceiling, stacking).
-- **BREAKOUT requires** price through the trigger *and* 10 s flow agreeing.
-
-Every transition carries a reason string built from the numbers that caused it. Those strings are what the feed shows.
-
-### Where the percentages come from
+### Where the odds come from
 
 The engine calibrates itself instead of predicting:
 
-1. **Sampling.** Every 10 s it records the pressure-score bucket and mid, then sets symmetric barriers at ±max(2 bps, 1σ·√h) for h = 1, 5 and 15 min (triple-barrier labelling).
-2. **Labelling.** Whichever barrier price touches first is the outcome. If neither is touched, the outcome is *no break*.
-3. **Reporting.** The UI shows the Dirichlet(1,1,1)-smoothed frequency of each outcome for the **current** bucket, with an 80% credible range, the raw `n`, and the **effective** `n` (discounted because overlapping horizons are autocorrelated). It also shows the base rate across all buckets for comparison.
-4. **Thresholds.** Below `n_eff = 10` no percentage is shown, only the raw outcome counts (e.g. `3 up first · 1 down first · 2 no break`), because a percentage from a handful of samples would mostly reflect the prior. With zero samples, nothing is shown.
+1. **Sampling.** Every 15 s it records the score bucket and price, then sets barriers at ±max(0.5%, 1σ·√h) for 5 m, 15 m and 1 h horizons.
+2. **Labelling.** Whichever barrier price touches first is the outcome.
+3. **Reporting.** The 8-ball shows the smoothed frequency for readings like the current one ("▲ 42% · ▼ 21% · n=…"). It only does so once the effective sample size is ≥10. Until then it shows no percentage at all.
+4. **Storage.** Counts are stored per token in the browser, so the odds start empty and sharpen the longer you run.
 
-Counts are stored per venue and pair (browser `localStorage`, or `.wickipedia/` for the agent), so estimates sharpen the longer you run. Floors and ceilings are tracked the same way: did price stay on the right side of the level over each horizon?
+### Data integrity
 
-**No LLM sets any number.** The headlines and plain-English reads are deterministic templates filled with measured values. You could add an LLM summarizer on top of the event feed, but it must never set or alter a probability.
-
-### CEX order books ≠ DEX pools
-
-Wickipedia reads **centralized-exchange limit order books**: discrete resting orders from many participants. A **DEX AMM pool** (Uniswap-style) has no order book. Its liquidity is a pricing curve (x·y=k, or concentrated LP ranges), so walls, absorption and OFI don't exist there in the same form. Wickipedia doesn't ingest, show or infer DEX liquidity, and every view is labelled `CEX L2 book`.
-
----
+- **Paused signals.** If a source goes quiet for 45 s, signals pause and the 8-ball says why.
+- **Discarded samples.** In-flight calibration samples that span a data hole are discarded, not guessed.
+- **De-duplication.** Swaps are de-duplicated by transaction hash, so polling overlap or two sources never double count.
+- **Old swaps.** Swaps older than 10 minutes only feed candles, never live flow.
+- **Rate limits.** The free GeckoTerminal limit (~30 req/min) is shared per IP; the client spaces requests and backs off on HTTP 429.
 
 ## Development
 
 ```bash
-npm test             # vitest — engine, sync rules, parsers, calibration, walls, state machine, feeds
+npm test             # vitest: AMM math, parsers, resolution, rate limiter, engine detectors, state machine, calibration, oracle
 npm run typecheck
-npm run mock         # LOCAL TEST TOOL: synthetic Binance-protocol exchange on :8787
+npm run mock         # LOCAL TEST TOOL: synthetic GeckoTerminal + PumpPortal on :8787
 ```
 
-The mock exchange cycles through calm, absorption, coiling and breakout regimes so you can exercise the whole pipeline offline:
+Run the app against the mock (all prices are synthetic, and the UI shows a **mock data** badge):
 
 ```
-http://localhost:5173/?venue=binance&symbol=MOCKUSDT&ws=ws://localhost:8787&rest=http://localhost:8787
+http://localhost:5173/?api=http://localhost:8787&pumpws=ws://localhost:8787/api/data
 ```
-
-Its prices are synthetic. The app only uses it when you pass `ws`/`rest` overrides, and then the health pill shows a **custom endpoint** badge.
 
 ### Honest limitations
 
-- The browser connects directly to exchanges, so availability depends on your region and network. Binance.com is blocked in the US; use Binance.US or Coinbase.
-- Detector thresholds are hand-set heuristics for liquid spot pairs, not parameters fitted to data. The calibrated odds tell you how well they work on your pair. Thin pairs produce noisier walls and imbalances.
-- Order books can be spoofed. A wall that vanishes may never have been meant to trade, and Wickipedia says so.
-- Calibration starts empty. Expect "calibrating" for the first ~20 min at 1 m and longer at 5 and 15 m.
+- **Not tested against the live APIs yet.** The build environment couldn't reach GeckoTerminal or PumpPortal. The parsers follow their documented formats and are tested against fixtures and the mock.
+- **Not tick-by-tick.** GeckoTerminal data is polled, so it is near-real-time. pump.fun curve trades via PumpPortal are real-time.
+- **Robinhood Chain coverage** depends on GeckoTerminal indexing it. If it isn't listed yet, the app says so instead of showing anything.
+- **Rough impact on concentrated pools.** For concentrated-liquidity pools (CLMM / DLMM / v3), impact from reported liquidity is an approximation.
+- **Heuristic thresholds.** Detector thresholds are hand-set, not fitted. The calibrated odds tell you how well they work on a given token.
 
 ---
 
-*Wickipedia describes what the order book is doing. It is not financial advice and nothing here guarantees a move.*
+*Wickipedia reads the chain; it doesn't know the future. Memecoins can go to zero in minutes. Not financial advice.*

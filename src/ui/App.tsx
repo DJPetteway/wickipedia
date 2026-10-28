@@ -1,215 +1,171 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WickEvent } from '../engine/types';
-import { VENUES, findVenue, normalizeSymbol } from '../feeds';
-import { FlowPanel, ImbalancePanel, WallsPanel } from './components/BookPanels';
-import { CandlesPanel } from './components/Candles';
-import { LessonContext } from './components/common';
-import { DepthChart } from './components/DepthChart';
-import { EstimatesPanel } from './components/Estimates';
-import { EventFeed, ReadsPanel } from './components/Feed';
-import { Header } from './components/Header';
-import { Hero } from './components/Hero';
-import { WickSchool } from './components/WickSchool';
-import { Widget } from './components/Widget';
-import type { LessonId } from './content';
-import { fmtPx } from './format';
-import { browserStore, useWickipedia } from './useWickipedia';
+import { useEffect, useMemo, useState } from 'react';
+import { consult } from '../engine/oracle';
+import type { ChainId, LiquidityModel } from '../engine/types';
+import { findChain } from '../sources/chains';
+import { geckoClient } from '../sources/gecko';
+import { resolveInput, type Candidate } from '../sources/resolve';
+import { EightBall } from './components/EightBall';
+import { Gauge } from './components/Gauge';
+import { TokenSheet } from './components/TokenSheet';
+import { fmtAge, fmtPx } from './format';
+import { useWickipedia } from './useWickipedia';
 
-function readParams() {
-  const p = new URLSearchParams(location.search);
-  const venue = findVenue(p.get('venue') ?? '') ?? VENUES[0];
-  const symbol = p.get('symbol') ? normalizeSymbol(venue, p.get('symbol')!) : venue.symbols[0].id;
+// ------------------------------------------------------------------ URL state
+
+function candidateFromUrl(p: URLSearchParams): Candidate | null {
+  const chain = findChain(p.get('chain') ?? '')?.id;
+  const token = p.get('token');
+  if (!chain || !token || !p.get('venue')) return null;
   return {
-    venueId: venue.id,
-    symbol,
-    widget: p.get('view') === 'widget',
-    // Endpoint overrides exist for local testing against a mock exchange. They are always shown in the UI.
-    ws: p.get('ws') ?? undefined,
-    rest: p.get('rest') ?? undefined,
+    chain,
+    network: p.get('net') ?? findChain(chain)!.geckoNetwork ?? chain,
+    token,
+    pool: p.get('pool') ?? undefined,
+    symbol: p.get('sym') ?? '???',
+    name: p.get('name') ?? '',
+    quoteSymbol: p.get('quote') ?? undefined,
+    venue: p.get('venue')!,
+    model: (p.get('model') as LiquidityModel) ?? 'UNKNOWN',
+    pumpCurve: p.get('curve') === '1',
+    liquidityUsd: null,
+    volume24h: null,
+    priceUsd: null,
+    change24h: null,
+    createdAt: null,
   };
 }
 
-function writeParams(next: Record<string, string | undefined>) {
+function writeParams(c: Candidate | null, chain: ChainId) {
   const p = new URLSearchParams(location.search);
-  for (const [k, v] of Object.entries(next)) v === undefined ? p.delete(k) : p.set(k, v);
+  for (const k of ['chain', 'token', 'pool', 'net', 'sym', 'name', 'quote', 'venue', 'model', 'curve']) p.delete(k);
+  p.set('chain', chain);
+  if (c) {
+    const set = (k: string, v?: string) => v && p.set(k, v);
+    set('token', c.token);
+    set('pool', c.pool);
+    set('net', c.network);
+    set('sym', c.symbol);
+    set('name', c.name);
+    set('quote', c.quoteSymbol);
+    set('venue', c.venue);
+    set('model', c.model);
+    if (c.pumpCurve) p.set('curve', '1');
+  }
   history.replaceState(null, '', `${location.pathname}?${p.toString()}`);
 }
 
-const notifySupported = typeof Notification !== 'undefined';
-
 export function App() {
-  const initial = useMemo(readParams, []);
-  const [venueId, setVenueId] = useState(initial.venueId);
-  const [symbol, setSymbol] = useState(initial.symbol);
-  const [widget, setWidget] = useState(initial.widget);
-  const [palette, setPalette] = useState<'trader' | 'cvd'>(() => (browserStore.get('wickipedia:palette') === 'cvd' ? 'cvd' : 'trader'));
-  const [notifyOn, setNotifyOn] = useState(() => browserStore.get('wickipedia:notify') === '1');
-  const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>(notifySupported ? Notification.permission : 'unsupported');
-  const [toast, setToast] = useState<WickEvent | null>(null);
-  const [school, setSchool] = useState<{ open: boolean; focus: LessonId | null }>({ open: false, focus: null });
-  const lastNotified = useRef<Record<string, number>>({});
-  const venue = findVenue(venueId)!;
-  const endpoints = useMemo(() => ({ ws: initial.ws, rest: initial.rest }), [initial.ws, initial.rest]);
-  const custom = !!(initial.ws || initial.rest);
+  const params = useMemo(() => new URLSearchParams(location.search), []);
+  const [chain, setChain] = useState<ChainId>(() => findChain(params.get('chain') ?? '')?.id ?? 'solana');
+  const [market, setMarket] = useState<Candidate | null>(() => candidateFromUrl(params));
+  const [sheet, setSheet] = useState(() => !candidateFromUrl(params) && !params.get('token'));
+  // Endpoint overrides exist for local testing against the mock; they are always flagged on screen.
+  const sources = useMemo(() => ({ geckoBase: params.get('api') ?? undefined, pumpWs: params.get('pumpws') ?? undefined }), [params]);
+  const custom = !!(sources.geckoBase || sources.pumpWs);
+
+  // A shared link with just ?chain=…&token=… resolves to the deepest market.
+  useEffect(() => {
+    const token = params.get('token');
+    if (market || !token) return;
+    resolveInput(token, chain, geckoClient(sources.geckoBase))
+      .then((r) => (r[0] ? pick(r[0]) : setSheet(true)))
+      .catch(() => setSheet(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const { snap } = useWickipedia(market, sources, () => undefined);
+  const oracle = snap ? consult(snap) : null;
 
   useEffect(() => {
-    document.documentElement.dataset.palette = palette;
-    browserStore.set('wickipedia:palette', palette);
-  }, [palette]);
+    document.title = snap ? `${fmtPx(snap.price)} $${snap.market.symbol} · ${oracle?.answer ?? ''} · Wickipedia` : 'Wickipedia — the chain knows';
+  }, [snap, oracle?.answer]);
 
-  const onEvent = useCallback(
-    (e: WickEvent) => {
-      if (e.severity !== 'alert') return;
-      setToast(e);
-      if (!notifyOn || perm !== 'granted') return;
-      const last = lastNotified.current[e.kind] ?? 0;
-      if (e.ts - last < 20_000) return;
-      lastNotified.current[e.kind] = e.ts;
-      try {
-        new Notification(`${e.title} · ${symbol}`, { body: e.body, tag: `wk-${e.kind}`, silent: false });
-      } catch {
-        /* some browsers only allow notifications from a service worker */
-      }
-    },
-    [notifyOn, perm, symbol],
-  );
-
-  const { snap, engine } = useWickipedia(venueId, symbol, endpoints, onEvent);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 7000);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  useEffect(() => {
-    if (!snap) return;
-    const px = snap.mid ?? snap.lastTradePrice;
-    const st = snap.setup.state;
-    const flag = st === 'NEUTRAL' ? '' : `${st}${snap.setup.direction === 'up' ? '↑' : snap.setup.direction === 'down' ? '↓' : ''} · `;
-    document.title = `${flag}${px ? fmtPx(px) : '…'} ${snap.symbol} · Wickipedia`;
-  }, [snap]);
-
-  const changeVenue = (id: string) => {
-    const v = findVenue(id)!;
-    setVenueId(v.id);
-    setSymbol(v.symbols[0].id);
-    writeParams({ venue: v.id, symbol: v.symbols[0].id });
-  };
-  const changeSymbol = (raw: string) => {
-    const sym = normalizeSymbol(venue, raw);
-    if (!sym) return;
-    setSymbol(sym);
-    writeParams({ symbol: sym });
-  };
-  const toggleNotify = async () => {
-    if (!notifySupported) return;
-    if (notifyOn) {
-      setNotifyOn(false);
-      browserStore.set('wickipedia:notify', '0');
-      return;
-    }
-    const p = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
-    setPerm(p);
-    if (p === 'granted') {
-      setNotifyOn(true);
-      browserStore.set('wickipedia:notify', '1');
-    }
-  };
-  const popWidget = () => {
-    const p = new URLSearchParams(location.search);
-    p.set('view', 'widget');
-    p.set('venue', venueId);
-    p.set('symbol', symbol);
-    const w = window.open(`${location.pathname}?${p.toString()}`, `wickipedia-${venueId}-${symbol}`, 'width=400,height=640');
-    if (!w) {
-      setWidget(true);
-      writeParams({ view: 'widget' });
-    }
-  };
-  const openLesson = useCallback((id: LessonId) => setSchool({ open: true, focus: id }), []);
-
-  if (!snap) return <div className="boot">Licking the order book…</div>;
-
-  if (widget) {
-    return (
-      <LessonContext.Provider value={openLesson}>
-        <Widget
-          s={snap}
-          custom={custom}
-          onExpand={() => {
-            setWidget(false);
-            writeParams({ view: undefined });
-          }}
-        />
-      </LessonContext.Provider>
-    );
+  function pick(c: Candidate) {
+    setMarket(c);
+    setChain(c.chain);
+    writeParams(c, c.chain);
+    setSheet(false);
   }
 
+  const live = !!snap && snap.valid && snap.health.status === 'live';
+  const age = snap?.health.lastMessageAt ? snap.now - snap.health.lastMessageAt : null;
+  const dir = snap?.setup.direction;
+
   return (
-    <LessonContext.Provider value={openLesson}>
-      <a href="#feed" className="skip">
-        Skip to the feed
-      </a>
-      <Header
-        s={snap}
-        venue={venue}
-        symbol={symbol}
-        onVenue={changeVenue}
-        onSymbol={changeSymbol}
-        notify={!notifySupported ? 'unsupported' : notifyOn && perm === 'granted' ? 'granted' : perm === 'denied' ? 'denied' : 'off'}
-        onNotify={toggleNotify}
-        palette={palette}
-        onPalette={() => setPalette(palette === 'trader' ? 'cvd' : 'trader')}
-        onSchool={() => setSchool({ open: true, focus: null })}
-        onWidget={popWidget}
-        custom={custom}
-      />
-      {!snap.valid && (
-        <div className="banner" role="alert">
-          <strong>No trustworthy data right now:</strong> {snap.invalidReason}. {venue.note}
-          {snap.health.status === 'error' && venue.id === 'binance' && ' If Binance is blocked where you are, try Binance.US or Coinbase.'}
-        </div>
-      )}
-      <main className="grid">
-        <Hero s={snap} />
-        <DepthChart s={snap} />
-        <ReadsPanel s={snap} />
-        <ImbalancePanel s={snap} />
-        <FlowPanel s={snap} />
-        <WallsPanel s={snap} />
-        <EstimatesPanel s={snap} onReset={() => engine.current?.resetCalibration()} />
-        <CandlesPanel s={snap} />
-        <EventFeed s={snap} />
+    <div className={`app ${oracle ? `tone-${oracle.tone}` : ''}`}>
+      <div className="blobs" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+
+      <header className="bar">
+        <span className="wordmark" aria-label="Wickipedia">
+          wick<span>ipedia</span>
+        </span>
+        <button type="button" className="token-pill glass" onClick={() => setSheet(true)} aria-haspopup="dialog">
+          {market ? (
+            <>
+              <strong>${market.symbol}</strong>
+              <span className="pill-px">{fmtPx(snap?.price)}</span>
+              <span className="pill-venue">{market.venue}</span>
+            </>
+          ) : (
+            <strong>Pick a token</strong>
+          )}
+          <span aria-hidden="true">▾</span>
+        </button>
+        <span
+          className={`dot ${live ? 'live' : snap ? 'off' : ''}`}
+          role="status"
+          title={snap ? `${snap.health.source} · ${snap.health.status}${custom ? ' · custom endpoint' : ''} · updated ${fmtAge(age)} ago` : 'no token'}
+          aria-label={snap ? `Data ${live ? 'live' : snap.health.status}, updated ${fmtAge(age)} ago` : 'No token selected'}
+        />
+        {custom && <span className="custom">mock data</span>}
+      </header>
+
+      <main className="stage">
+        {snap && oracle ? (
+          <>
+            <Gauge
+              score={snap.score}
+              ready={snap.valid && snap.warmup.ready}
+              parts={snap.scoreParts}
+              warmup={snap.valid && !snap.warmup.ready ? snap.warmup : null}
+            />
+            <EightBall oracle={oracle} />
+            {dir && snap.setup.state !== 'NEUTRAL' && <span className="sr-only">Setup {snap.setup.state}, direction {dir}</span>}
+          </>
+        ) : (
+          <section className="empty-stage">
+            <EightBall
+              oracle={{
+                key: 'idle',
+                answer: 'ASK ME ABOUT A TOKEN',
+                tone: 'hazy',
+                detail: 'Pick a token on Solana (pump.fun, PumpSwap, Raydium, StonkFun), Robinhood Chain or Arbitrum. I read the swaps, not the vibes.',
+                odds: null,
+              }}
+            />
+            <button type="button" className="candy-btn big" onClick={() => setSheet(true)}>
+              Pick a token
+            </button>
+          </section>
+        )}
       </main>
-      <footer className="foot">
-        <p>
-          <strong>CEX order book only.</strong> Data: {venue.name} public market data ({venue.note}) DEX/AMM pool liquidity is a different structure and is not
-          shown or inferred here.{' '}
-          <button type="button" className="linkish" onClick={() => openLesson('cexdex')}>
-            CEX vs DEX
-          </button>
-        </p>
-        <p className="muted">
-          Wickipedia reads the book; it doesn&apos;t know the future. Every number is measured from live data or counted from what happened after similar readings.
-          Not financial advice.
-        </p>
-      </footer>
-      {toast && (
-        <div className={`toast dir-${toast.direction ?? "none"}`} role="status">
-          <strong>{toast.title}</strong>
-          <span>{toast.body}</span>
-          <button type="button" className="btn small" onClick={() => setToast(null)} aria-label="Dismiss alert">
-            ✕
-          </button>
-        </div>
-      )}
-      <WickSchool
-        open={school.open}
-        focus={school.focus}
-        onClose={() => setSchool({ open: false, focus: null })}
-        onPick={(id) => setSchool({ open: true, focus: id })}
+
+      <footer className="fine">Reads on-chain swaps & liquidity. Never certain. Not financial advice.</footer>
+
+      <TokenSheet
+        open={sheet}
+        chain={chain}
+        onChain={(c) => setChain(c)}
+        onSearch={(q) => resolveInput(q, chain, geckoClient(sources.geckoBase))}
+        onPick={pick}
+        onClose={() => setSheet(false)}
+        geckoBase={sources.geckoBase}
+        pumpWs={sources.pumpWs}
       />
-    </LessonContext.Provider>
+    </div>
   );
 }

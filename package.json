@@ -2,7 +2,7 @@
   "name": "wickipedia",
   "version": "0.1.0",
   "private": true,
-  "description": "Wickipedia — real-time order-book intelligence agent. Read the book. See the wick coming.",
+  "description": "Wickipedia — live on-chain buy/sell pressure and a magic 8-ball for Solana, Robinhood Chain and Arbitrum tokens.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "agent": "tsx src/agent/cli.ts",
-    "mock": "tsx scripts/mock-exchange.ts"
+    "mock": "tsx scripts/mock-chain.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

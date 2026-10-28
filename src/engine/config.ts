@@ -1,61 +1,81 @@
 /**
  * Every threshold the engine uses lives here so it is visible, testable and
- * documented in one place. These are heuristics chosen for liquid spot
- * pairs, not fitted parameters; the probability estimates shown in the UI
- * never come from these weights — they come from calibration.ts, which
- * counts what actually happened after similar readings.
+ * documented in one place. These are heuristics for on-chain memecoin /
+ * launchpad markets, not fitted parameters. The probability estimates shown
+ * in the UI never come from these weights — they come from calibration.ts,
+ * which counts what actually happened after similar readings.
  */
 export interface EngineConfig {
-  /** Bands (bps from mid) used for order-book imbalance. */
-  imbalanceBandsBps: number[];
-  /** The band that feeds the composite score. */
-  primaryBandBps: number;
-  /** Window for OFI and short flow (ms). */
+  /** Short and long flow windows (ms). */
   shortWindowMs: number;
-  /** Window for longer flow context (ms). */
   longWindowMs: number;
-  /** Seconds of 1 s mid samples needed before any signal is shown. */
+  /** Seconds of 1 s price samples needed before any signal is shown. */
   warmupSec: number;
+  /** Signals pause when the source has been silent this long (ms). */
+  staleMs: number;
+  /** Swaps older than this (vs. now) are used for candles only, not live flow. */
+  maxSwapAgeMs: number;
   /** Composite score weights (sum to 1). */
-  weights: { imbalance: number; ofi: number; flow: number; microprice: number };
+  weights: { flowShort: number; flowLong: number; wallets: number; flowVsLiquidity: number };
+  /** Price move the flow-vs-liquidity term is scaled to (0.02 = 2%). */
+  liquidityRefMove: number;
 
-  walls: {
-    /** Only look this far from mid for walls (bps). */
-    rangeBps: number;
-    /** A level is a wall if its size ≥ mult × median level size on that side within range. */
-    medianMultiple: number;
-    /** …and it must persist this long before we call it out (anti-flicker). */
-    minAgeMs: number;
-    /** Drop fraction from peak that counts as "eaten" / "vanished". */
-    eatenDropFrac: number;
-    vanishDropFrac: number;
-    /** Share of the drop that must be explained by trades to call it eaten. */
-    eatenTradeShare: number;
-    /** Share explained by trades below which a drop is "vanished" (pulled). */
-    vanishMaxTradeShare: number;
+  whales: {
+    minUsd: number;
+    /** …or this fraction of pool liquidity, whichever is larger. */
+    liquidityFrac: number;
+    cooldownSec: number;
+  };
+
+  wallets: {
+    /** Top wallet share of one side's 5-min volume that triggers a concentration alert. */
+    topShare: number;
+    minTrades: number;
+    minUsd: number;
+    cooldownSec: number;
+  };
+
+  liquidity: {
+    /** Unexplained liquidity change (after removing the price effect) that counts as an LP pull / add. */
+    pullFrac: number;
+    addFrac: number;
+    lookbackSec: number;
+    cooldownSec: number;
   };
 
   absorption: {
     windowSec: number;
-    /** Aggressive notional must be ≥ this z-score vs. its own recent history. */
+    /** Aggressive notional ≥ this z-score vs. its own recent history. */
     minFlowZ: number;
-    /** Aggressor share of window volume (e.g. ≥ 0.6 of volume is sells). */
+    /** Aggressor share of window volume. */
     minAggressorShare: number;
-    /** Price must move less than max(minBps, sigmaMult × σ over the window). */
-    maxMoveBps: number;
+    /** One-sided flow must be at least this multiple of its typical (median) window volume. */
+    minBaselineMultiple: number;
+    /** All conditions must hold continuously this long before a floor/ceiling is called (s). */
+    persistSec: number;
+    /** Gross one-sided flow must have implied at least this move on the pool's curve. */
+    minImpliedMove: number;
+    /** Actual move must be ≤ this fraction of the implied move (the rest was absorbed). */
+    maxRealizedShare: number;
+    /** Fallback when liquidity is unknown: max move = max(minBps, sigmaMult·σ·√window). */
+    fallbackMaxMoveBps: number;
     sigmaMult: number;
-    /** Near-touch depth on the absorbing side must stay ≥ this fraction of where it started. */
-    minDepthRetention: number;
+    /** A floor "breaks" if price trades this far below it (bps). */
+    levelBufferBps: number;
     cooldownSec: number;
   };
 
   stacking: {
     windowSec: number;
-    bandBps: number;
-    /** Depth growth required (0.3 = +30%). */
-    minGrowth: number;
-    minImbalance: number;
+    minWallets: number;
+    /** Distinct buyers ÷ sellers (or the inverse). */
+    minRatio: number;
     cooldownSec: number;
+  };
+
+  graduation: {
+    /** Bonding-curve progress milestones that emit an event. */
+    milestones: number[];
   };
 
   state: {
@@ -63,16 +83,12 @@ export interface EngineConfig {
     watchHoldSec: number;
     watchExit: number;
     watchExitSec: number;
-    /** short-vol / long-vol below this = compression. */
     coilRatio: number;
     imminentScore: number;
-    /** Price must be within this fraction of the range width from the trigger. */
     imminentProximity: number;
-    /** Supporting book event must be this recent (s). */
     supportWindowSec: number;
     rangeSec: number;
     minRangeBps: number;
-    /** Flow confirmation (10 s delta ratio) required for a breakout. */
     confirmFlow: number;
     breakoutHoldSec: number;
     imminentTimeoutSec: number;
@@ -83,74 +99,65 @@ export interface EngineConfig {
   calibration: {
     horizonsSec: number[];
     sampleEverySec: number;
-    /** Barrier = max(minBps, k × σ_1s × √h). */
     barrierSigma: number;
     minBarrierBps: number;
-    /** Score bucket edges (ascending, inside (−1, 1)). */
     bucketEdges: number[];
-    /** Effective sample size below which estimates are flagged as low confidence. */
     minEffectiveN: number;
   };
 }
 
 export const DEFAULT_CONFIG: EngineConfig = {
-  imbalanceBandsBps: [10, 25, 50],
-  primaryBandBps: 25,
-  shortWindowMs: 10_000,
-  longWindowMs: 60_000,
-  warmupSec: 60,
-  weights: { imbalance: 0.3, ofi: 0.25, flow: 0.3, microprice: 0.15 },
-  walls: {
-    rangeBps: 150,
-    medianMultiple: 6,
-    minAgeMs: 3_000,
-    eatenDropFrac: 0.5,
-    vanishDropFrac: 0.7,
-    eatenTradeShare: 0.5,
-    vanishMaxTradeShare: 0.2,
-  },
+  shortWindowMs: 60_000,
+  longWindowMs: 300_000,
+  warmupSec: 90,
+  staleMs: 45_000,
+  maxSwapAgeMs: 10 * 60_000,
+  weights: { flowShort: 0.3, flowLong: 0.25, wallets: 0.2, flowVsLiquidity: 0.25 },
+  liquidityRefMove: 0.02,
+  whales: { minUsd: 2_000, liquidityFrac: 0.01, cooldownSec: 15 },
+  wallets: { topShare: 0.5, minTrades: 6, minUsd: 1_000, cooldownSec: 180 },
+  liquidity: { pullFrac: 0.2, addFrac: 0.25, lookbackSec: 180, cooldownSec: 120 },
   absorption: {
-    windowSec: 30,
+    windowSec: 120,
     minFlowZ: 1.5,
-    minAggressorShare: 0.6,
-    maxMoveBps: 3,
+    minAggressorShare: 0.55,
+    minBaselineMultiple: 2.5,
+    persistSec: 10,
+    minImpliedMove: 0.03,
+    maxRealizedShare: 0.35,
+    fallbackMaxMoveBps: 50,
     sigmaMult: 0.5,
-    minDepthRetention: 0.8,
-    cooldownSec: 45,
+    levelBufferBps: 100,
+    cooldownSec: 120,
   },
-  stacking: {
-    windowSec: 30,
-    bandBps: 25,
-    minGrowth: 0.3,
-    minImbalance: 0.25,
-    cooldownSec: 60,
-  },
+  stacking: { windowSec: 300, minWallets: 8, minRatio: 2, cooldownSec: 180 },
+  graduation: { milestones: [0.5, 0.75, 0.9, 0.95] },
   state: {
     watchEnter: 0.25,
-    watchHoldSec: 3,
+    watchHoldSec: 5,
     watchExit: 0.12,
-    watchExitSec: 8,
+    watchExitSec: 20,
     coilRatio: 0.75,
     imminentScore: 0.45,
     imminentProximity: 0.35,
-    supportWindowSec: 30,
-    rangeSec: 120,
-    minRangeBps: 3,
-    confirmFlow: 0.15,
-    breakoutHoldSec: 15,
-    imminentTimeoutSec: 120,
-    failedSec: 5,
-    cooldownSec: 30,
+    supportWindowSec: 120,
+    rangeSec: 300,
+    minRangeBps: 50,
+    confirmFlow: 0.2,
+    breakoutHoldSec: 30,
+    imminentTimeoutSec: 300,
+    failedSec: 10,
+    cooldownSec: 60,
   },
   calibration: {
-    horizonsSec: [60, 300, 900],
-    sampleEverySec: 10,
+    horizonsSec: [300, 900, 3600],
+    sampleEverySec: 15,
     barrierSigma: 1,
-    minBarrierBps: 2,
+    minBarrierBps: 50,
     bucketEdges: [-0.5, -0.2, 0.2, 0.5],
     minEffectiveN: 10,
   },
 };
 
 /** Bump when anything that changes calibration semantics changes. */
-export const ENGINE_VERSION = 'wk-1';
+export const ENGINE_VERSION = 'wk-onchain-1';

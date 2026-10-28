@@ -1,5 +1,19 @@
-import { DEFAULT_CONFIG } from '../src/engine/config';
+import { DEFAULT_CONFIG, type EngineConfig } from '../src/engine/config';
 import { SetupStateMachine, type StateInputs } from '../src/engine/stateMachine';
+
+// Fixed, fast timings so the walk-through is easy to read; production values live in config.ts.
+const CFG: EngineConfig['state'] = {
+  ...DEFAULT_CONFIG.state,
+  watchHoldSec: 3,
+  watchExitSec: 8,
+  supportWindowSec: 30,
+  minRangeBps: 3,
+  confirmFlow: 0.15,
+  breakoutHoldSec: 15,
+  imminentTimeoutSec: 120,
+  failedSec: 5,
+  cooldownSec: 30,
+};
 
 const base = (now: number, over: Partial<StateInputs> = {}): StateInputs => ({
   now,
@@ -15,7 +29,7 @@ const base = (now: number, over: Partial<StateInputs> = {}): StateInputs => ({
 
 describe('SetupStateMachine', () => {
   it('walks a full bullish setup to a confirmed breakout and back to neutral', () => {
-    const sm = new SetupStateMachine(DEFAULT_CONFIG.state);
+    const sm = new SetupStateMachine(CFG);
     const states: string[] = [];
     const step = (x: StateInputs) => {
       const t = sm.step(x);
@@ -52,7 +66,7 @@ describe('SetupStateMachine', () => {
   });
 
   it('flags a fakeout when a breakout falls back inside the range', () => {
-    const sm = new SetupStateMachine(DEFAULT_CONFIG.state);
+    const sm = new SetupStateMachine(CFG);
     let t = 0;
     for (; t <= 4000; t += 1000) sm.step(base(t, { score: 0.4 }));
     sm.step(base((t += 1000), { score: 0.4, mid: 100.3, flowDelta: 0.5 }));
@@ -63,7 +77,7 @@ describe('SetupStateMachine', () => {
   });
 
   it('fails a coiled setup that breaks its invalidation level', () => {
-    const sm = new SetupStateMachine(DEFAULT_CONFIG.state);
+    const sm = new SetupStateMachine(CFG);
     let t = 0;
     for (; t <= 4000; t += 1000) sm.step(base(t, { score: 0.4 }));
     sm.step(base((t += 1000), { score: 0.4, compression: 0.5 }));
@@ -73,7 +87,7 @@ describe('SetupStateMachine', () => {
   });
 
   it('dissolves quietly back to neutral when pressure fades', () => {
-    const sm = new SetupStateMachine(DEFAULT_CONFIG.state);
+    const sm = new SetupStateMachine(CFG);
     let t = 0;
     for (; t <= 4000; t += 1000) sm.step(base(t, { score: -0.4 }));
     expect(sm.view().direction).toBe('down');
@@ -82,7 +96,7 @@ describe('SetupStateMachine', () => {
   });
 
   it('requires pressure to persist before watching', () => {
-    const sm = new SetupStateMachine(DEFAULT_CONFIG.state);
+    const sm = new SetupStateMachine(CFG);
     sm.step(base(0, { score: 0.5 }));
     sm.step(base(1000, { score: 0.1 }));
     sm.step(base(2000, { score: 0.5 }));
