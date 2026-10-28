@@ -1,0 +1,6 @@
+node_modules
+dist
+.wickipedia
+*.ndjson
+!tests/fixtures/*.ndjson
+.DS_Store
