@@ -4,6 +4,8 @@ export interface CandleTrade {
   price: number;
   size: number;
   aggressor: 'buy' | 'sell';
+  /** Notional in USD, when known (drives VWAP and volume-by-price). */
+  usd?: number;
 }
 
 export interface Candle {
@@ -16,6 +18,8 @@ export interface Candle {
   /** Base volume split by aggressor. */
   buyVol: number;
   sellVol: number;
+  /** Total traded notional in USD. */
+  volUsd: number;
   /** True when this candle was built entirely from trades we saw live. */
   live: boolean;
 }
@@ -73,13 +77,14 @@ export class CandleBuilder {
     let last = this.candles[this.candles.length - 1];
     if (last && bucket < last.t) return; // late trade from an older bucket; ignore
     if (!last || bucket > last.t) {
-      last = { t: bucket, o: t.price, h: t.price, l: t.price, c: t.price, buyVol: 0, sellVol: 0, live: true };
+      last = { t: bucket, o: t.price, h: t.price, l: t.price, c: t.price, buyVol: 0, sellVol: 0, volUsd: 0, live: true };
       this.candles.push(last);
       if (this.candles.length > this.keep) this.candles.shift();
     }
     last.h = Math.max(last.h, t.price);
     last.l = Math.min(last.l, t.price);
     last.c = t.price;
+    last.volUsd += t.usd ?? t.size * t.price;
     if (t.aggressor === 'buy') last.buyVol += t.size;
     else last.sellVol += t.size;
   }

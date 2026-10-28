@@ -27,17 +27,16 @@ export function candy(t: number): string {
 }
 
 /**
- * The toy: a glossy jelly bead that slides along a candy track. Sellers on
- * the left, buyers on the right. One word underneath. That's it.
+ * The toy: a glossy jelly bead on a candy track. Left = supply (distribution,
+ * overhead sellers), right = price discovery. One word underneath.
  */
-export function Gauge({ score, ready }: { score: number; ready: boolean }) {
+export function Gauge({ score, ready, word }: { score: number; ready: boolean; word: string }) {
   const s = ready ? Math.max(-1, Math.min(1, score)) : 0;
   const [bx, by] = polar(s);
-  const word = !ready ? 'WARMING UP' : Math.abs(s) < 0.12 ? 'BALANCED' : s > 0 ? (s > 0.5 ? 'BUYERS!' : 'BUYERS') : s < -0.5 ? 'SELLERS!' : 'SELLERS';
   const color = ready ? candy(s) : 'rgb(200,190,255)';
 
   return (
-    <figure className="toy-gauge" aria-label={`Pressure: ${word.toLowerCase()}`} style={{ ['--bead' as string]: color }}>
+    <figure className="toy-gauge" aria-label={`Discovery meter: ${word.toLowerCase()}`} style={{ ['--bead' as string]: color }}>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-hidden="true">
         <defs>
           <linearGradient id="g-candy" x1="0" x2="1" y1="0" y2="0">
@@ -64,10 +63,10 @@ export function Gauge({ score, ready }: { score: number; ready: boolean }) {
           <ellipse cx="-7" cy="-9" rx="7" ry="4.5" className="bead-shine" />
         </g>
         <text x={CX - R} y={H - 2} className="g-end" textAnchor="middle">
-          SELLERS
+          SUPPLY
         </text>
         <text x={CX + R} y={H - 2} className="g-end" textAnchor="middle">
-          BUYERS
+          DISCOVERY
         </text>
       </svg>
       <figcaption className="toy-word" key={word}>

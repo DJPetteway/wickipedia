@@ -60,6 +60,13 @@ export function startMarket(engine: PoolEngine, plan: MarketPlan, opts: SourceOp
         .ohlcv(client, m.network, pool)
         .then((c) => !stopped && engine.seedCandles(c))
         .catch(() => undefined);
+      // ~8 h of 5-minute candles for structure: swing range, Fibonacci, VWAP, volume-by-price.
+      const seedStructure = () =>
+        gecko
+          .ohlcv(client, m.network, pool, 5, 100)
+          .then((c) => !stopped && engine.seedStructure(c))
+          .catch(() => undefined);
+      void seedStructure();
       while (!stopped) {
         try {
           if (now() - lastPoolAt > 20_000) {

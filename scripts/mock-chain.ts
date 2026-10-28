@@ -171,14 +171,15 @@ function tradeRes(t: Trade) {
   };
 }
 
-function ohlcv() {
+function ohlcv(aggregate: number, limit: number) {
   const rows: number[][] = [];
+  const step = 60 * aggregate;
   let px = price() * 0.8;
-  const now = Math.floor(Date.now() / 60_000) * 60;
-  for (let i = 60; i > 0; i--) {
+  const now = Math.floor(Date.now() / 1000 / step) * step;
+  for (let i = Math.min(limit, 100); i > 0; i--) {
     const o = px;
     const c = o * (1 + (rnd() - 0.47) * 0.04);
-    rows.push([now - i * 60, o, Math.max(o, c) * (1 + rnd() * 0.02), Math.min(o, c) * (1 - rnd() * 0.02), c, 1000 + rnd() * 5000]);
+    rows.push([now - i * step, o, Math.max(o, c) * (1 + rnd() * 0.02), Math.min(o, c) * (1 - rnd() * 0.02), c, 1000 + rnd() * 5000]);
     px = c;
   }
   return rows.reverse();
@@ -196,7 +197,7 @@ const server = createServer((req, res) => {
   if (p.endsWith(`/tokens/${CURVE_MINT}/pools`)) return send({ data: [curvePoolRes()], included });
   if (p.endsWith(`/pools/${POOL}`)) return send({ data: poolRes(), included });
   if (p.endsWith(`/pools/${POOL}/trades`)) return send({ data: trades.slice(-300).reverse().map(tradeRes) });
-  if (p.endsWith(`/pools/${POOL}/ohlcv/minute`)) return send({ data: { attributes: { ohlcv_list: ohlcv() } } });
+  if (p.endsWith(`/pools/${POOL}/ohlcv/minute`)) return send({ data: { attributes: { ohlcv_list: ohlcv(Number(url.searchParams.get('aggregate') ?? 1), Number(url.searchParams.get('limit') ?? 60)) } } });
   if (p.includes('/token_price/')) return send({ data: { attributes: { token_prices: { [SOL]: String(SOL_USD) } } } });
   res.statusCode = 404;
   send({ errors: [{ status: '404', title: 'Not Found' }] });

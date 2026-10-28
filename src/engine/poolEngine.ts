@@ -2,6 +2,7 @@ import { impactOf, quoteReserveFromLiquidity, usdToMoveDown, usdToMoveUp } from 
 import { Calibrator, type HorizonEstimate, type LevelHoldEstimate } from './calibration';
 import { CandleBuilder, type Candle } from './candles';
 import { DEFAULT_CONFIG, ENGINE_VERSION, type EngineConfig } from './config';
+import { assessDiscovery, type Discovery } from './discovery';
 import { copy, fmtPct, fmtUsd, shortAddr } from './copy';
 import { Ring, RollingWindow } from './rolling';
 import { SetupStateMachine, type SetupView, type Transition } from './stateMachine';
@@ -91,6 +92,9 @@ export interface EngineSnapshot {
   levelHolds: LevelHoldEstimate[];
   floors: { kind: 'floor' | 'ceiling'; level: number; ts: number }[];
   candles: Candle[];
+  /** 5-minute candles used for structure (swing range, Fibonacci, VWAP, volume-by-price). */
+  structure: Candle[];
+  discovery: Discovery;
   events: WickEvent[];
   /** Newest-last micro log of what the engine just did — real processing steps, for the ticker. */
   activity: ActivityItem[];
@@ -143,7 +147,7 @@ export class PoolEngine {
   private prices = new Ring(3600);
   private sellAbsHist = new Ring(900);
   private buyAbsHist = new Ring(900);
-  private cvdHist = new Ring(300);
+  private cvdHist = new Ring(900);
   private scoreHist = new Ring(300);
   private liqHist: { ts: number; liq: number; price: number }[] = [];
   private liqSeries = new Ring(240);
@@ -151,6 +155,8 @@ export class PoolEngine {
   private sm: SetupStateMachine;
   private cal: Calibrator;
   private candles = new CandleBuilder();
+  private structure = new CandleBuilder(300_000, 200);
+  private lastDiscovery: Discovery | null = null;
   private events: WickEvent[] = [];
   private lastSupport: Record<Direction, number | null> = { up: null, down: null };
   private cooldowns: Record<string, number> = {};
@@ -253,7 +259,9 @@ export class PoolEngine {
     const fresh = swaps.filter((s) => !this.seen.has(s.id) && Number.isFinite(s.priceUsd) && s.priceUsd > 0).sort((a, b) => a.ts - b.ts);
     for (const s of fresh) {
       this.remember(s.id);
-      this.candles.onTrade({ ts: s.ts, price: s.priceUsd, size: s.baseAmount, aggressor: s.side });
+      const ct = { ts: s.ts, price: s.priceUsd, size: s.baseAmount, aggressor: s.side, usd: s.usd };
+      this.candles.onTrade(ct);
+      this.structure.onTrade(ct);
       if (!this.lastSwap || s.ts >= this.lastSwap.ts) this.lastSwap = s;
       if (now - s.ts > this.cfg.maxSwapAgeMs) continue;
       this.health.lastSwapAt = Math.max(this.health.lastSwapAt ?? 0, s.ts);
@@ -274,6 +282,10 @@ export class PoolEngine {
       const f = fresh[0];
       this.log(now, `${f.side} ${fmtUsd(f.usd)}${f.wallet ? ` · ${shortAddr(f.wallet)}` : ''} → flow windows updated`);
     }
+  }
+
+  seedStructure(history: Candle[]): void {
+    this.structure.seed(history);
   }
 
   seedCandles(history: Candle[]): void {
@@ -716,6 +728,14 @@ export class PoolEngine {
       `calibration · ${n} outcomes counted · ${pending} in flight`,
       `setup ${this.sm.view().state.toLowerCase()} · range ${this.cached.rangeLow !== null ? 'set' : 'forming'}`,
     ];
+    const d = this.lastDiscovery;
+    if (d?.ready) {
+      lines.push(
+        `discovery scan · ${d.passed}/${d.known} checks · ${d.stage.toLowerCase().replace('_', ' ')}`,
+        `overhead supply ${d.overheadShare !== null ? `${(d.overheadShare * 100).toFixed(0)}%` : '—'} · VWAP ${d.vwap !== null ? fmtUsd(d.vwap) : '—'} · fib pos ${d.fibPosition !== null ? d.fibPosition.toFixed(2) : '—'}`,
+        `distribution sweep · ${d.distributionFlags.length ? d.distributionFlags.join(', ') : 'clean'}`,
+      );
+    }
     this.log(now, lines[this.scanTurn++ % lines.length]);
   }
 
@@ -767,6 +787,28 @@ export class PoolEngine {
       .sort((a, b) => b.buyUsd + b.sellUsd - (a.buyUsd + a.sellUsd))
       .slice(0, 6);
     const ready = this.prices.length >= c.warmupSec;
+    let topSell = 0;
+    let sellTot = 0;
+    for (const w of ws.map.values()) {
+      sellTot += w.sellUsd;
+      topSell = Math.max(topSell, w.sellUsd);
+    }
+    const discovery = assessDiscovery({
+      now,
+      price,
+      structure: this.structure.list(),
+      minute: this.candles.list(),
+      quoteReserveUsd: qr,
+      buyUsd5m: bL,
+      sellUsd5m: sL,
+      buyers5m: ws.buyers,
+      sellers5m: ws.sellers,
+      topSellerShare: sellTot > 0 ? topSell / sellTot : null,
+      cvdSeries: this.cvdHist.tail(),
+      priceSeries: this.prices.tail(700),
+      events: this.events,
+    });
+    this.lastDiscovery = discovery;
     return {
       now,
       market: this.opts.market,
@@ -813,6 +855,8 @@ export class PoolEngine {
       levelHolds: this.cal.levelHolds(),
       floors: [...this.floors],
       candles: this.candles.list(),
+      structure: this.structure.list(),
+      discovery,
       events: [...this.events],
       activity: this.activity.slice(-12),
     };

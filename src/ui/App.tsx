@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { consult } from '../engine/oracle';
+import { writeArticle } from '../engine/article';
 import type { ChainId, LiquidityModel } from '../engine/types';
-import { findChain } from '../sources/chains';
-import { geckoClient } from '../sources/gecko';
-import { resolveInput, type Candidate } from '../sources/resolve';
-import { EightBall } from './components/EightBall';
+import { findChain, geckoNetworkFor } from '../sources/chains';
+import { gecko, geckoClient } from '../sources/gecko';
+import { fromPool, resolveInput, type Candidate } from '../sources/resolve';
+import { ArticleCard } from './components/ArticleCard';
 import { Gauge } from './components/Gauge';
 import { Ticker } from './components/Ticker';
-import { TokenSheet } from './components/TokenSheet';
+import { SearchBox } from './components/SearchBox';
 import { fmtAge, fmtPx } from './format';
 import { useWickipedia } from './useWickipedia';
 
@@ -55,112 +55,120 @@ function writeParams(c: Candidate | null, chain: ChainId) {
   history.replaceState(null, '', `${location.pathname}?${p.toString()}`);
 }
 
+const STAGE_WORD = {
+  DISCOVERY: 'DISCOVERY',
+  LOADING: 'LOADING',
+  BUILDING: 'BUILDING',
+  NEUTRAL: 'NEUTRAL',
+  DISTRIBUTION: 'SUPPLY',
+  NO_DATA: 'WARMING UP',
+} as const;
+
 export function App() {
   const params = useMemo(() => new URLSearchParams(location.search), []);
   const [chain, setChain] = useState<ChainId>(() => findChain(params.get('chain') ?? '')?.id ?? 'solana');
   const [market, setMarket] = useState<Candidate | null>(() => candidateFromUrl(params));
-  const [sheet, setSheet] = useState(() => !candidateFromUrl(params) && !params.get('token'));
   // Endpoint overrides exist for local testing against the mock; they are always flagged on screen.
   const sources = useMemo(() => ({ geckoBase: params.get('api') ?? undefined, pumpWs: params.get('pumpws') ?? undefined }), [params]);
   const custom = !!(sources.geckoBase || sources.pumpWs);
+  const client = () => geckoClient(sources.geckoBase);
 
   // A shared link with just ?chain=…&token=… resolves to the deepest market.
   useEffect(() => {
     const token = params.get('token');
     if (market || !token) return;
-    resolveInput(token, chain, geckoClient(sources.geckoBase))
-      .then((r) => (r[0] ? pick(r[0]) : setSheet(true)))
-      .catch(() => setSheet(true));
+    resolveInput(token, chain, client())
+      .then((r) => r[0] && pick(r[0]))
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { snap } = useWickipedia(market, sources, () => undefined);
-  const oracle = snap ? consult(snap) : null;
+  const article = snap ? writeArticle(snap) : null;
+  const d = snap?.discovery;
+  const ready = !!snap && snap.valid && !!d?.ready;
+  const word = !snap || !snap.valid ? 'NO DATA' : STAGE_WORD[d!.stage];
 
   useEffect(() => {
-    document.title = snap ? `${fmtPx(snap.price)} $${snap.market.symbol} · ${oracle?.answer ?? ''} · Wickipedia` : 'Wickipedia — the chain knows';
-  }, [snap, oracle?.answer]);
+    document.title = snap && article ? `${fmtPx(snap.price)} $${snap.market.symbol} · ${article.verdict} · Wickipedia` : 'Wickipedia — the free market encyclopedia';
+  }, [snap, article?.verdict]);
 
   function pick(c: Candidate) {
     setMarket(c);
     setChain(c.chain);
     writeParams(c, c.chain);
-    setSheet(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+
+  const degen = async () => {
+    const net = await geckoNetworkFor(findChain(chain)!, client());
+    const pools = (await gecko.trending(client(), net)).slice(0, 8);
+    if (!pools.length) throw new Error('Nothing trending right now.');
+    pick(fromPool(chain, net, pools[Math.floor(Math.random() * pools.length)]));
+  };
 
   const live = !!snap && snap.valid && snap.health.status === 'live';
   const age = snap?.health.lastMessageAt ? snap.now - snap.health.lastMessageAt : null;
+  const search = (
+    <SearchBox
+      chain={chain}
+      onChain={setChain}
+      onSearch={(q) => resolveInput(q, chain, client())}
+      onPick={pick}
+      onDegen={degen}
+      geckoBase={sources.geckoBase}
+      pumpWs={sources.pumpWs}
+      home={!market}
+    />
+  );
 
   return (
-    <div className={`app ${oracle ? `tone-${oracle.tone}` : ''}`}>
+    <div className={`app ${article ? `tone-${article.tone}` : ''}`}>
       <div className="blobs" aria-hidden="true">
         <span />
         <span />
         <span />
       </div>
 
-      <header className="bar">
-        <span className="wordmark" aria-label="Wickipedia">
-          wick<span>ipedia</span>
-        </span>
-        <button type="button" className="token-pill glass" onClick={() => setSheet(true)} aria-haspopup="dialog">
-          {market ? (
-            <>
-              <strong>${market.symbol}</strong>
-              <span className="pill-px">{fmtPx(snap?.price)}</span>
-              <span className="pill-venue">{market.venue}</span>
-            </>
-          ) : (
-            <strong>Pick a token</strong>
-          )}
-          <span aria-hidden="true">▾</span>
-        </button>
-        <span
-          className={`dot ${live ? 'live' : snap ? 'off' : ''}`}
-          role="status"
-          title={snap ? `${snap.health.source} · ${snap.health.status}${custom ? ' · custom endpoint' : ''} · updated ${fmtAge(age)} ago` : 'no token'}
-          aria-label={snap ? `Data ${live ? 'live' : snap.health.status}, updated ${fmtAge(age)} ago` : 'No token selected'}
-        />
-        {custom && <span className="custom">mock data</span>}
-      </header>
+      {market && (
+        <header className="bar">
+          <button type="button" className="wordmark" onClick={() => { setMarket(null); writeParams(null, chain); }} aria-label="Wickipedia home">
+            wick<span>ipedia</span>
+          </button>
+          <span className="bar-sym">
+            ${market.symbol} <span className="muted">{fmtPx(snap?.price)}</span>
+          </span>
+          <span
+            className={`dot ${live ? 'live' : snap ? 'off' : ''}`}
+            role="status"
+            title={snap ? `${snap.health.source} · ${snap.health.status} · updated ${fmtAge(age)} ago` : ''}
+            aria-label={snap ? `Data ${live ? 'live' : snap.health.status}, updated ${fmtAge(age)} ago` : 'No token'}
+          />
+          {custom && <span className="custom">mock data</span>}
+        </header>
+      )}
 
       <main className="stage">
-        {snap && oracle ? (
+        {snap && article ? (
           <>
-            <Gauge score={snap.score} ready={snap.valid && snap.warmup.ready} />
-            <EightBall oracle={oracle} />
+            <Gauge score={d?.score ?? 0} ready={ready} word={word} />
+            <ArticleCard a={article} />
+            {search}
           </>
         ) : (
-          <section className="empty-stage">
-            <EightBall
-              oracle={{
-                key: 'idle',
-                answer: 'WHICH TOKEN?',
-                tone: 'hazy',
-                detail: 'Pick a token on Solana (pump.fun, PumpSwap, Raydium, StonkFun), Robinhood Chain or Arbitrum. I read the swaps, not the vibes.',
-                odds: null,
-              }}
-            />
-            <button type="button" className="candy-btn" onClick={() => setSheet(true)}>
-              Pick a token
-            </button>
+          <section className="home">
+            <h1 className="home-logo">
+              Wick<span>ipedia</span>
+            </h1>
+            <p className="home-tag">The Free Market Encyclopedia</p>
+            {search}
+            {custom && <span className="custom">mock data</span>}
           </section>
         )}
       </main>
 
       <footer className="fine">never certain · not financial advice</footer>
       {snap && <Ticker items={snap.activity} now={snap.now} />}
-
-      <TokenSheet
-        open={sheet}
-        chain={chain}
-        onChain={(c) => setChain(c)}
-        onSearch={(q) => resolveInput(q, chain, geckoClient(sources.geckoBase))}
-        onPick={pick}
-        onClose={() => setSheet(false)}
-        geckoBase={sources.geckoBase}
-        pumpWs={sources.pumpWs}
-      />
     </div>
   );
 }

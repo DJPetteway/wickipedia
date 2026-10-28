@@ -165,7 +165,7 @@ export function parsePools(json: unknown): ParsedPool[] {
 export function parseOhlcv(json: unknown): Candle[] {
   const rows = (json as { data?: { attributes?: { ohlcv_list?: number[][] } } })?.data?.attributes?.ohlcv_list ?? [];
   return rows
-    .map((r) => ({ t: r[0] * 1000, o: r[1], h: r[2], l: r[3], c: r[4], buyVol: 0, sellVol: 0, live: false }))
+    .map((r) => ({ t: r[0] * 1000, o: r[1], h: r[2], l: r[3], c: r[4], buyVol: 0, sellVol: 0, volUsd: Number(r[5]) || 0, live: false }))
     .filter((c) => [c.o, c.h, c.l, c.c].every(Number.isFinite))
     .sort((a, b) => a.t - b.t);
 }
@@ -187,8 +187,8 @@ const INC = 'include=base_token,quote_token,dex';
 export const gecko = {
   pool: (c: RateLimitedClient, net: string, pool: string) => c.get(`/networks/${net}/pools/${pool}?${INC}`).then(parsePool),
   trades: (c: RateLimitedClient, net: string, pool: string) => c.get(`/networks/${net}/pools/${pool}/trades`).then(parseTrades),
-  ohlcv: (c: RateLimitedClient, net: string, pool: string) =>
-    c.get(`/networks/${net}/pools/${pool}/ohlcv/minute?aggregate=1&limit=90&currency=usd`).then(parseOhlcv),
+  ohlcv: (c: RateLimitedClient, net: string, pool: string, aggregate: 1 | 5 = 1, limit = 90) =>
+    c.get(`/networks/${net}/pools/${pool}/ohlcv/minute?aggregate=${aggregate}&limit=${limit}&currency=usd`).then(parseOhlcv),
   tokenPools: (c: RateLimitedClient, net: string, token: string) => c.get(`/networks/${net}/tokens/${token}/pools?${INC}`).then(parsePools),
   search: (c: RateLimitedClient, net: string, q: string) => c.get(`/search/pools?query=${encodeURIComponent(q)}&network=${net}&${INC}`).then(parsePools),
   trending: (c: RateLimitedClient, net: string) => c.get(`/networks/${net}/trending_pools?${INC}`).then(parsePools),
